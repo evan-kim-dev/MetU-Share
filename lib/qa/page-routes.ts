@@ -21,6 +21,12 @@ export type PageRouteSpec = {
  */
 export const PAGE_ROUTES: readonly PageRouteSpec[] = [
   {
+    path: "/dev/card-benefits",
+    file: "app/dev/card-benefits/page.tsx",
+    access: "public",
+    note: "임시 테스트 · 카드 혜택 계획 (개발 환경만 공개, 배포는 NEXT_PUBLIC_CARD_LAB=1 일 때만)",
+  },
+  {
     path: "/",
     file: "app/page.tsx",
     access: "public",
@@ -99,6 +105,12 @@ export const PAGE_ROUTES: readonly PageRouteSpec[] = [
     note: "여행 상세",
   },
   {
+    path: "/trips/[id]/photos",
+    file: "app/trips/[id]/photos/page.tsx",
+    access: "auth-or-guest",
+    note: "여행 사진 앨범·자동 분류",
+  },
+  {
     path: "/trips/[id]/ledger",
     file: "app/trips/[id]/ledger/page.tsx",
     access: "auth-or-guest",
@@ -169,6 +181,12 @@ export const PAGE_ROUTES: readonly PageRouteSpec[] = [
     file: "app/profile/page.tsx",
     access: "auth-or-guest",
     note: "프로필",
+  },
+  {
+    path: "/steps",
+    file: "app/steps/page.tsx",
+    access: "auth-or-guest",
+    note: "만보기 포인트 프로토타입 (localStorage)",
   },
   {
     path: "/notifications",
