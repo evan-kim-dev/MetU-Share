@@ -1,7 +1,5 @@
 import "server-only";
 
-import webpush from "web-push";
-
 import { getAgentAdmin } from "@/lib/agent/admin";
 
 export type PushPayload = {
@@ -20,13 +18,21 @@ type SubRow = {
 
 let vapidConfigured = false;
 
-function ensureVapid(): boolean {
+type WebPush = typeof import("web-push");
+
+async function loadWebPush(): Promise<WebPush> {
+  const mod = await import("web-push");
+  return (mod.default ?? mod) as WebPush;
+}
+
+async function ensureVapid(): Promise<boolean> {
   if (vapidConfigured) return true;
   const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim();
   const privateKey = process.env.VAPID_PRIVATE_KEY?.trim();
   const subject =
     process.env.VAPID_SUBJECT?.trim() || "mailto:support@met-u.app";
   if (!publicKey || !privateKey) return false;
+  const webpush = await loadWebPush();
   webpush.setVapidDetails(subject, publicKey, privateKey);
   vapidConfigured = true;
   return true;
@@ -42,7 +48,7 @@ export async function sendPush(
   payload: PushPayload
 ): Promise<void> {
   try {
-    if (!ensureVapid()) return;
+    if (!(await ensureVapid())) return;
 
     const admin = getAgentAdmin();
     if (!admin) return;
@@ -54,6 +60,7 @@ export async function sendPush(
 
     if (error || !data?.length) return;
 
+    const webpush = await loadWebPush();
     const body = JSON.stringify({
       title: payload.title,
       body: payload.body,

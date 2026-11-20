@@ -1,6 +1,6 @@
 import "server-only";
 
-import OpenAI from "openai";
+import type OpenAI from "openai";
 import { z } from "zod";
 
 import { getUsageSink } from "@/lib/ai/usage";
@@ -210,11 +210,17 @@ function buildUserContent(
   return parts;
 }
 
-function buildOpenAiClient(): GeminiInteractionsClient {
+async function loadOpenAI(): Promise<typeof import("openai").default> {
+  const mod = await import("openai");
+  return mod.default;
+}
+
+async function buildOpenAiClient(): Promise<GeminiInteractionsClient> {
   const key = getApiKey();
   if (!key) {
     throw new Error("no_api_key");
   }
+  const OpenAI = await loadOpenAI();
   const openai = new OpenAI({ apiKey: key });
 
   return {
@@ -288,7 +294,7 @@ function buildOpenAiClient(): GeminiInteractionsClient {
   };
 }
 
-function getClient(): GeminiInteractionsClient | null {
+async function getClient(): Promise<GeminiInteractionsClient | null> {
   if (clientOverride) return clientOverride;
   if (!getApiKey()) return null;
   return buildOpenAiClient();
@@ -330,7 +336,7 @@ export async function geminiText(args: {
 }): Promise<GeminiResult<string>> {
   const started = Date.now();
   const model = modelName(args.model);
-  const client = getClient();
+  const client = await getClient();
   if (!client) {
     return { ok: false, error: "no_api_key", model };
   }
@@ -453,7 +459,7 @@ export async function geminiStructured<T>(args: {
 }): Promise<GeminiResult<T>> {
   const started = Date.now();
   const model = modelName(args.model);
-  const client = getClient();
+  const client = await getClient();
   if (!client) {
     return { ok: false, error: "no_api_key", model };
   }
@@ -588,7 +594,7 @@ export async function geminiVision<T>(args: {
   const kind = args.model ?? "main";
   const started = Date.now();
   const model = modelName(kind);
-  const client = getClient();
+  const client = await getClient();
   if (!client) {
     return { ok: false, error: "no_api_key", model };
   }
