@@ -71,12 +71,17 @@ function envInt(name: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-/** main/fast 모두 기본 gpt-6-luna (env로만 분기 가능). */
+/** main/fast 기본 gpt-6.2-astra (env로만 분기 가능). */
 function modelName(kind: GeminiModelKind): string {
   if (kind === "main") {
-    return process.env.OPENAI_MODEL_MAIN?.trim() || "gpt-6-luna";
+    return process.env.OPENAI_MODEL_MAIN?.trim() || "gpt-6.2-astra";
   }
-  return process.env.OPENAI_MODEL_FAST?.trim() || "gpt-6-luna";
+  return process.env.OPENAI_MODEL_FAST?.trim() || "gpt-6.2-astra";
+}
+
+/** Astra 계열은 reasoning_effort=none 을 거부해요. Luna 는 none 이 안정적이에요. */
+function reasoningEffortFor(model: string): "none" | "low" {
+  return /astra/i.test(model) ? "low" : "none";
 }
 
 function timeoutMs(): number {
@@ -215,7 +220,7 @@ function buildOpenAiClient(): GeminiInteractionsClient {
   return {
     interactions: {
       create: async (params, options) => {
-        const model = String(params.model ?? "gpt-6-luna");
+        const model = String(params.model ?? "gpt-6.2-astra");
         const system =
           typeof params.system_instruction === "string"
             ? params.system_instruction
@@ -254,8 +259,6 @@ function buildOpenAiClient(): GeminiInteractionsClient {
           format = { type: "json_object" };
         }
 
-        // gpt-6-luna: Chat Completions 에서는 reasoning_effort=none 일 때
-        // structured/function 경로가 안정적이에요.
         // max_tokens 는 일부 모델에서 거부되어 plan 이 통째로 fallback 되므로 넣지 않아요.
         const completion = (await openai.chat.completions.create(
           {
@@ -263,7 +266,7 @@ function buildOpenAiClient(): GeminiInteractionsClient {
             messages,
             stream: false,
             response_format: format,
-            reasoning_effort: "none",
+            reasoning_effort: reasoningEffortFor(model),
           } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,
           {
             signal: options?.abortSignal,
@@ -417,6 +420,11 @@ export async function geminiText(args: {
     };
   } catch (err) {
     const ms = Date.now() - started;
+    const message = err instanceof Error ? err.message : "openai_error";
+    console.error(
+      `[geminiText] purpose=${args.purpose} model=${model} ms=${ms}`,
+      message
+    );
     await recordUsage({
       userId: args.userId,
       tripId: args.tripId,
@@ -427,7 +435,7 @@ export async function geminiText(args: {
     });
     return {
       ok: false,
-      error: err instanceof Error ? err.message : "openai_error",
+      error: message,
       model,
       ms,
     };
