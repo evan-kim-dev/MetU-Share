@@ -33,6 +33,7 @@ import {
 import { TripBotSheet } from "@/components/trips/TripBotSheet";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import type { ExpenseDraftInput } from "@/lib/ledger/draft";
+import { todayIsoDate } from "@/lib/shared/dates";
 import { fetchTripInboxCount } from "@/lib/ledger/inbox-count";
 import {
   fetchOpenBudgetSuggestions,
@@ -90,7 +91,7 @@ function newManualDraft(): ExpenseDraftInput {
     merchant: "",
     amount: null,
     currency: "KRW",
-    spentOn: new Date().toISOString().slice(0, 10),
+    spentOn: todayIsoDate(),
     category: "기타",
     paymentMethod: "card",
     kind: "approval",
