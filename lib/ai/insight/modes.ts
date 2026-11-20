@@ -21,9 +21,10 @@ export const INSIGHT_MODES: Record<AiMode, InsightModeConfig> = {
   tips: { temperature: 0.6, maxTokens: 8000, timeoutMs: 75_000, cacheTtlSec: 600, model: "fast", json: true },
   style: { temperature: 0.55, maxTokens: 3500, timeoutMs: 75_000, cacheTtlSec: 600, model: "fast", json: false },
   schedule: { temperature: 0.6, maxTokens: 5000, timeoutMs: 75_000, cacheTtlSec: 600, model: "fast", json: false },
-  plan: { temperature: 0.55, maxTokens: 24000, timeoutMs: 105_000, cacheTtlSec: 600, model: "main", json: true },
+  // 일정 JSON을 짧게 → 토큰·지연 축소 (클라 동선 최적화는 후처리)
+  plan: { temperature: 0.45, maxTokens: 7000, timeoutMs: 40_000, cacheTtlSec: 600, model: "main", json: true },
   deals: { temperature: 0.55, maxTokens: 8000, timeoutMs: 75_000, cacheTtlSec: 600, model: "fast", json: true },
-  summary: { temperature: 0.55, maxTokens: 4000, timeoutMs: 75_000, cacheTtlSec: 600, model: "fast", json: false },
+  summary: { temperature: 0.55, maxTokens: 1500, timeoutMs: 25_000, cacheTtlSec: 600, model: "fast", json: false },
   deal: { temperature: 0.65, maxTokens: 8000, timeoutMs: 75_000, cacheTtlSec: 600, model: "fast", json: true },
   buddy: { temperature: 1.0, maxTokens: 4000, timeoutMs: 75_000, cacheTtlSec: 0, model: "fast", json: false },
   itinerary: { temperature: 0.4, maxTokens: 8000, timeoutMs: 75_000, cacheTtlSec: 600, model: "main", json: true },

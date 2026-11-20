@@ -49,6 +49,8 @@ export async function runInsight(args: {
       purpose: `insight:${args.mode}`,
       userId: args.userId,
       json: wantJson,
+      timeoutMs: cfg.timeoutMs,
+      maxTokens: cfg.maxTokens,
     });
     if (!res.ok || !res.data) {
       throw new Error(res.ok === false ? res.error : "empty");

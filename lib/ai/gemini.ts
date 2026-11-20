@@ -256,6 +256,10 @@ function buildOpenAiClient(): GeminiInteractionsClient {
 
         // gpt-6-luna: Chat Completions 에서는 reasoning_effort=none 일 때
         // structured/function 경로가 안정적이에요.
+        const maxTokens =
+          typeof params.max_tokens === "number" && params.max_tokens > 0
+            ? Math.floor(params.max_tokens)
+            : undefined;
         const completion = (await openai.chat.completions.create(
           {
             model,
@@ -263,6 +267,7 @@ function buildOpenAiClient(): GeminiInteractionsClient {
             stream: false,
             response_format: format,
             reasoning_effort: "none",
+            ...(maxTokens ? { max_tokens: maxTokens } : {}),
           } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,
           {
             signal: options?.abortSignal,
@@ -292,13 +297,15 @@ function getClient(): GeminiInteractionsClient | null {
 
 async function createInteraction(
   client: GeminiInteractionsClient,
-  params: CreateParams
+  params: CreateParams,
+  callTimeoutMs?: number
 ): Promise<InteractionLike> {
+  const ms = callTimeoutMs && callTimeoutMs > 0 ? callTimeoutMs : timeoutMs();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs());
+  const timer = setTimeout(() => controller.abort(), ms);
   try {
     return await client.interactions.create(params, {
-      timeout: timeoutMs(),
+      timeout: ms,
       abortSignal: controller.signal,
     });
   } finally {
@@ -317,6 +324,10 @@ export async function geminiText(args: {
   json?: boolean;
   /** Optional inline images (receipt vision etc.). */
   images?: Array<{ mimeType: string; base64: string }>;
+  /** Per-call abort (ms). Defaults to OPENAI_TIMEOUT_MS. */
+  timeoutMs?: number;
+  /** Soft cap on completion length when the OpenAI adapter supports it. */
+  maxTokens?: number;
 }): Promise<GeminiResult<string>> {
   const started = Date.now();
   const model = modelName(args.model);
@@ -355,15 +366,22 @@ export async function geminiText(args: {
 
   try {
     const interaction = await withRetries(() =>
-      createInteraction(client, {
-        model,
-        store: false,
-        system_instruction: system,
-        input,
-        response_format: args.json
-          ? { type: "text", mime_type: "application/json" }
-          : { type: "text" },
-      })
+      createInteraction(
+        client,
+        {
+          model,
+          store: false,
+          system_instruction: system,
+          input,
+          response_format: args.json
+            ? { type: "text", mime_type: "application/json" }
+            : { type: "text" },
+          ...(args.maxTokens && args.maxTokens > 0
+            ? { max_tokens: Math.floor(args.maxTokens) }
+            : {}),
+        },
+        args.timeoutMs
+      )
     );
 
     const text = interaction.output_text?.trim() ?? "";

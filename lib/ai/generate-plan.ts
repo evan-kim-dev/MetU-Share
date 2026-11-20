@@ -603,7 +603,9 @@ export async function buildFallbackTripPlanAsync(
     source: "empty",
   };
   try {
-    knowledge = await fetchDestinationKnowledge(city, country || "");
+    knowledge = await fetchDestinationKnowledge(city, country || "", {
+      timeoutMs: 5_000,
+    });
   } catch (error) {
     console.error("[destination-knowledge] fetch failed:", error);
   }
@@ -718,7 +720,9 @@ export async function enrichTripPlanWithAi(
   let knowledge = prefetchedKnowledge ?? null;
   if (!knowledge) {
     try {
-      knowledge = await fetchDestinationKnowledge(city, country || "");
+      knowledge = await fetchDestinationKnowledge(city, country || "", {
+        timeoutMs: 5_000,
+      });
     } catch (error) {
       console.error("[destination-knowledge] enrich fetch failed:", error);
       knowledge = {
@@ -783,7 +787,7 @@ export async function enrichTripPlanWithAi(
       hotelBudget: hotelAmount,
       ragContexts,
       destinationSummary: knowledge.summary,
-      attractions: knowledge.attractions.map((a) => ({
+      attractions: knowledge.attractions.slice(0, 8).map((a) => ({
         name: a.name,
         detail: a.detail,
       })),
@@ -868,10 +872,12 @@ export async function enrichTripPlanWithAi(
       ? baseSummary
       : enriched.summary || baseSummary;
 
-  let dailySchedule =
-    options?.skipRouteOptimize || fallbackHasPlaces
-      ? scheduleBase
-      : enriched.dailySchedule;
+  // placeId 일정이 있으면 유지, 아니면 AI plan 일정(없으면 지식 폴백)
+  let dailySchedule = fallbackHasPlaces
+    ? scheduleBase
+    : enriched.dailySchedule?.length
+      ? enriched.dailySchedule
+      : scheduleBase;
   let tipsOut = tips;
   let routeOptimization: TripRecommendation["routeOptimization"];
 
@@ -909,7 +915,7 @@ export async function enrichTripPlanWithAi(
     } catch (error) {
       console.error("[route-optimize] skipped:", error);
     }
-  } else if (options?.skipRouteOptimize) {
+  } else if (fallbackHasPlaces) {
     ragSources.push({
       id: "place-itinerary-ai",
       category: "일정",
