@@ -88,7 +88,7 @@ ${message}
           push({ type: "meta", cached: false });
 
           const result = await geminiText({
-            model: "fast",
+            model: "main",
             system: BUDDY_SYSTEM,
             input: prompt,
             purpose: "buddy",

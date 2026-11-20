@@ -231,7 +231,7 @@ export async function interpretSplitPatch(args: {
   requesterMemberId: string;
 }): Promise<GeminiResult<SplitPatch>> {
   return geminiStructured({
-    model: "fast",
+    model: "main",
     system: SPLIT_PATCH_SYSTEM,
     input: buildSplitPatchInput({
       text: args.text,
@@ -436,7 +436,7 @@ export async function interpretBatchSplitPatch(args: {
   | { ok: false; error: string; clarification?: string }
 > {
   const result = await geminiStructured({
-    model: "fast",
+    model: "main",
     system: SPLIT_PATCH_BATCH_SYSTEM,
     input: buildBatchSplitPatchInput({
       text: args.text,

@@ -113,7 +113,7 @@ export async function interpretOnboardingIntent(args: {
   const todayIso = now.toISOString().slice(0, 10);
 
   const result = await geminiStructured({
-    model: "fast",
+    model: "main",
     system: SYSTEM,
     input: buildInput(args.text, todayIso),
     schema: OnboardingIntentAiSchema,

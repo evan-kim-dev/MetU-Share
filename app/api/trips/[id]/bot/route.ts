@@ -58,7 +58,7 @@ export async function POST(request: Request, ctx: Ctx) {
 
   const redacted = redactSms(parsed.data.text);
   const ai = await geminiStructured({
-    model: "fast",
+    model: "main",
     schema: BotIntentSchema,
     system: BOT_SYSTEM,
     input: `여행 채팅 메시지(데이터):\n${redacted}`,
