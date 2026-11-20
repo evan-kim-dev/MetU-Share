@@ -61,7 +61,7 @@ export async function POST(request: Request) {
     }
 
     // 웹 지식 → knowledge-aware fallback → AI enrich
-    const { plan: knowledgeFallback, knowledge, placeItineraryUsed } =
+    const { plan: knowledgeFallback, knowledge } =
       await buildFallbackTripPlanAsync(form);
 
     const seed =
@@ -74,8 +74,9 @@ export async function POST(request: Request) {
           }
         : knowledgeFallback;
 
+    // 동선 GA/지오코딩은 클라 /api/route/optimize 후처리 — enrich 임계 경로에서 제외
     const plan = await enrichTripPlanWithAi(seed, knowledge, {
-      skipRouteOptimize: placeItineraryUsed,
+      skipRouteOptimize: true,
     });
 
     return NextResponse.json({
