@@ -71,12 +71,12 @@ function envInt(name: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-/** 기본은 고가 플래그십. env 로 MAIN/FAST 를 각각 덮어쓸 수 있어요. */
+/** main/fast 모두 기본 gpt-6-luna (env로만 분기 가능). */
 function modelName(kind: GeminiModelKind): string {
   if (kind === "main") {
-    return process.env.OPENAI_MODEL_MAIN?.trim() || "gpt-6.2-astra";
+    return process.env.OPENAI_MODEL_MAIN?.trim() || "gpt-6-luna";
   }
-  return process.env.OPENAI_MODEL_FAST?.trim() || "gpt-6.2-astra";
+  return process.env.OPENAI_MODEL_FAST?.trim() || "gpt-6-luna";
 }
 
 function timeoutMs(): number {
@@ -88,7 +88,7 @@ function maxRetries(): number {
 }
 
 function dailyCap(): number {
-  return envInt("AGENT_DAILY_LLM_CALLS", 2000);
+  return envInt("AGENT_DAILY_LLM_CALLS", 200);
 }
 
 function getApiKey(): string | null {
@@ -215,7 +215,7 @@ function buildOpenAiClient(): GeminiInteractionsClient {
   return {
     interactions: {
       create: async (params, options) => {
-        const model = String(params.model ?? "gpt-6.2-astra");
+        const model = String(params.model ?? "gpt-6-luna");
         const system =
           typeof params.system_instruction === "string"
             ? params.system_instruction
@@ -256,6 +256,7 @@ function buildOpenAiClient(): GeminiInteractionsClient {
 
         // gpt-6-luna: Chat Completions 에서는 reasoning_effort=none 일 때
         // structured/function 경로가 안정적이에요.
+        // max_tokens 는 일부 모델에서 거부되어 plan 이 통째로 fallback 되므로 넣지 않아요.
         const completion = (await openai.chat.completions.create(
           {
             model,
@@ -292,13 +293,15 @@ function getClient(): GeminiInteractionsClient | null {
 
 async function createInteraction(
   client: GeminiInteractionsClient,
-  params: CreateParams
+  params: CreateParams,
+  callTimeoutMs?: number
 ): Promise<InteractionLike> {
+  const ms = callTimeoutMs && callTimeoutMs > 0 ? callTimeoutMs : timeoutMs();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs());
+  const timer = setTimeout(() => controller.abort(), ms);
   try {
     return await client.interactions.create(params, {
-      timeout: timeoutMs(),
+      timeout: ms,
       abortSignal: controller.signal,
     });
   } finally {
@@ -317,6 +320,10 @@ export async function geminiText(args: {
   json?: boolean;
   /** Optional inline images (receipt vision etc.). */
   images?: Array<{ mimeType: string; base64: string }>;
+  /** Per-call abort (ms). Defaults to OPENAI_TIMEOUT_MS. */
+  timeoutMs?: number;
+  /** Soft cap on completion length when the OpenAI adapter supports it. */
+  maxTokens?: number;
 }): Promise<GeminiResult<string>> {
   const started = Date.now();
   const model = modelName(args.model);
@@ -355,15 +362,19 @@ export async function geminiText(args: {
 
   try {
     const interaction = await withRetries(() =>
-      createInteraction(client, {
-        model,
-        store: false,
-        system_instruction: system,
-        input,
-        response_format: args.json
-          ? { type: "text", mime_type: "application/json" }
-          : { type: "text" },
-      })
+      createInteraction(
+        client,
+        {
+          model,
+          store: false,
+          system_instruction: system,
+          input,
+          response_format: args.json
+            ? { type: "text", mime_type: "application/json" }
+            : { type: "text" },
+        },
+        args.timeoutMs
+      )
     );
 
     const text = interaction.output_text?.trim() ?? "";

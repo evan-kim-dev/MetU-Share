@@ -30,7 +30,13 @@ async function aiChat(params: {
   prompt: string;
   clientKey?: string;
 }): Promise<AiChatResult> {
-  const userId = params.clientKey?.trim() || "anonymous";
+  // ai_usage_log.user_id 는 uuid — 비로그인/미전달 시 고정 센티널을 써요.
+  const raw = params.clientKey?.trim();
+  const userId =
+    raw &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)
+      ? raw
+      : "00000000-0000-4000-8000-000000000001";
 
   try {
     const result = await runInsight({
@@ -73,9 +79,10 @@ export async function aiChatOrNull(params: {
     return await aiChat(params);
   } catch (error) {
     if (error instanceof AiChatError) {
+      console.error(`[aiChatOrNull] ${params.mode}: ${error.code} ${error.message}`);
       return null;
     }
-    console.error("[aiChatOrNull]", error);
+    console.error(`[aiChatOrNull] ${params.mode}:`, error);
     return null;
   }
 }

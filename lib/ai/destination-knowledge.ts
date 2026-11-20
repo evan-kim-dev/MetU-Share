@@ -174,7 +174,7 @@ async function fetchOverpassAttractions(
 ): Promise<DestinationAttraction[]> {
   const radius = 9000;
   const query = `
-[out:json][timeout:18];
+[out:json][timeout:8];
 (
   node["tourism"="attraction"](around:${radius},${center.lat},${center.lng});
   node["tourism"="museum"](around:${radius},${center.lat},${center.lng});
@@ -188,6 +188,8 @@ out center ${limit};
 `.trim();
 
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 9_000);
     const res = await fetch("https://overpass-api.de/api/interpreter", {
       method: "POST",
       headers: {
@@ -195,8 +197,9 @@ out center ${limit};
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: `data=${encodeURIComponent(query)}`,
+      signal: controller.signal,
       next: { revalidate: 86400 },
-    });
+    }).finally(() => clearTimeout(timer));
     if (!res.ok) return [];
     const json = (await res.json()) as {
       elements?: Array<{
@@ -332,26 +335,10 @@ async function fetchWikivoyageHints(
   return [];
 }
 
-/**
- * 전 국가 공통: 위키 + OSM으로 목적지 요약·실명 명소를 가져온다.
- * 서버(Next API / enrich)에서 호출하는 것을 권장.
- */
-export async function fetchDestinationKnowledge(
-  city: string,
-  country: string
+async function fetchDestinationKnowledgeInner(
+  cleanCity: string,
+  cleanCountry: string
 ): Promise<DestinationKnowledge> {
-  const cleanCity = city.trim();
-  const cleanCountry = country.trim();
-  if (!cleanCity) {
-    return {
-      city: cleanCity,
-      country: cleanCountry,
-      summary: "",
-      attractions: [],
-      source: "empty",
-    };
-  }
-
   const [center, wiki] = await Promise.all([
     geocodeCityCenter(cleanCity, cleanCountry),
     fetchWikiSummary(cleanCity, cleanCountry),
@@ -361,7 +348,7 @@ export async function fetchDestinationKnowledge(
   let source: DestinationKnowledge["source"] = "empty";
 
   if (center) {
-    attractions = await fetchOverpassAttractions(center, 16);
+    attractions = await fetchOverpassAttractions(center, 10);
     if (attractions.length > 0) {
       source = wiki.summary ? "wiki+osm" : "osm";
     }
@@ -390,9 +377,50 @@ export async function fetchDestinationKnowledge(
     summary:
       wiki.summary ||
       `${cleanCity}${cleanCountry ? ` (${cleanCountry})` : ""} 여행 목적지예요. 시내 중심과 대표 스팟을 기준으로 일정을 짜요.`,
-    attractions: attractions.slice(0, 18),
+    attractions: attractions.slice(0, 10),
     source,
   };
+}
+
+/**
+ * 전 국가 공통: 위키 + OSM으로 목적지 요약·실명 명소를 가져온다.
+ * 서버(Next API / enrich)에서 호출하는 것을 권장.
+ * timeoutMs 안에 못 끝나면 빈 지식으로 폴백해 enrich가 막히지 않게 해요.
+ */
+export async function fetchDestinationKnowledge(
+  city: string,
+  country: string,
+  opts?: { timeoutMs?: number }
+): Promise<DestinationKnowledge> {
+  const cleanCity = city.trim();
+  const cleanCountry = country.trim();
+  const empty: DestinationKnowledge = {
+    city: cleanCity,
+    country: cleanCountry,
+    summary: "",
+    attractions: [],
+    source: "empty",
+  };
+  if (!cleanCity) return empty;
+
+  const timeoutMs =
+    opts?.timeoutMs && opts.timeoutMs > 0 ? opts.timeoutMs : 5_000;
+  const softEmpty: DestinationKnowledge = {
+    ...empty,
+    summary: `${cleanCity}${cleanCountry ? ` (${cleanCountry})` : ""} 여행 목적지예요. 시내 중심과 대표 스팟을 기준으로 일정을 짜요.`,
+  };
+
+  try {
+    return await Promise.race([
+      fetchDestinationKnowledgeInner(cleanCity, cleanCountry),
+      new Promise<DestinationKnowledge>((resolve) => {
+        setTimeout(() => resolve(softEmpty), timeoutMs);
+      }),
+    ]);
+  } catch (error) {
+    console.error("[destination-knowledge] fetch failed:", error);
+    return softEmpty;
+  }
 }
 
 /** 프롬프트/RAG용 컨텍스트 문자열 */
