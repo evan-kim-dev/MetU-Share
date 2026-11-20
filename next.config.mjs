@@ -3,10 +3,44 @@ import { fileURLToPath } from "node:url";
 
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
+/**
+ * 서버리스 함수 NFT 에서 빼는 경로.
+ * 테스트·스크립트·에이전트 스킬·큰 public 에셋이 실수로 묶이면
+ * 배포마다 함수 저장소가 불어나요. (Vercel Function Storage)
+ */
+const TRACE_EXCLUDES = [
+  "./.agents/**/*",
+  "./.cursor/**/*",
+  "./.claude/**/*",
+  "./.github/**/*",
+  "./docs/**/*",
+  "./eval/**/*",
+  "./scripts/**/*",
+  "./tests/**/*",
+  "./backend/**/*",
+  "./supabase/migrations/**/*",
+  "./supabase/verify/**/*",
+  "./**/*.test.ts",
+  "./**/*.test.tsx",
+  "./**/*.spec.ts",
+  "./**/*.spec.tsx",
+  "./public/easter/**/*",
+  "./public/brand/*.mp4",
+  "./public/brand/*.png",
+  "./README.md",
+  "./CLAUDE.md",
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Avoid picking a parent-directory lockfile as the workspace root.
   outputFileTracingRoot: projectRoot,
+  outputFileTracingExcludes: {
+    "/*": TRACE_EXCLUDES,
+    "next-server": TRACE_EXCLUDES,
+  },
+  // OpenAI SDK 는 서버 라우트에서만 쓰므로 번들러가 잘못 끌어오지 않게 외부화.
+  serverExternalPackages: ["openai", "web-push"],
   env: {
     NEXT_PUBLIC_BUILD_TAG:
       process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.NEXT_PUBLIC_BUILD_TAG ?? "",
