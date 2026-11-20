@@ -98,4 +98,17 @@ describe("AuthGate public paths", () => {
     expect(replace).not.toHaveBeenCalled();
     expect(screen.getByText("content")).toBeTruthy();
   });
+
+  it("실제 로그인 사용자는 /login 에서 soft replace 로 나가요", () => {
+    auth = {
+      isReady: true,
+      isLoggedIn: true,
+      user: { id: "u1" },
+      isAnonymous: false,
+      provider: "kakao",
+    };
+    searchParams.delete("next");
+    renderAt("/login");
+    expect(replace).toHaveBeenCalledWith("/");
+  });
 });

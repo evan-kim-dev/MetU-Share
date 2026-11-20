@@ -34,8 +34,12 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
     if (isRealUser && pathname === "/login") {
       const target = safeNextPath(searchParams.get("next"), "/");
-      // Soft nav can keep a stale client bundle after OAuth; force a full load.
-      window.location.replace(target);
+      // /login 으로 다시 보내면 하드 리로드 루프가 나요.
+      if (target === "/login" || target.startsWith("/login?")) {
+        router.replace("/");
+        return;
+      }
+      router.replace(target);
     }
   }, [
     isReady,

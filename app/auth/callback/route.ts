@@ -85,13 +85,8 @@ export async function GET(request: Request) {
     const supabase = await createServerSupabase();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      const bust =
-        process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 8) ??
-        Date.now().toString(36);
-      const joiner = next.includes("?") ? "&" : "?";
-      return completeLoginResponse(
-        `${siteOrigin}${next}${joiner}_b=${bust}`
-      );
+      // _b 캐시버스트 쿼리는 로그인 직후 폼/게이트 remount 를 유발할 수 있어 빼요.
+      return completeLoginResponse(`${siteOrigin}${next}`);
     }
     return loginErrorRedirect(siteOrigin, "exchange_failed", next);
   }
