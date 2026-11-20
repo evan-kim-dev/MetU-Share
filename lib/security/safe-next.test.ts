@@ -13,4 +13,11 @@ describe("safeNextPath", () => {
     expect(safeNextPath("https://evil.com")).toBe("/");
     expect(safeNextPath("evil")).toBe("/");
   });
+
+  it("blocks auth loop paths", () => {
+    expect(safeNextPath("/login")).toBe("/");
+    expect(safeNextPath("/login?x=1")).toBe("/");
+    expect(safeNextPath("/auth/callback")).toBe("/");
+    expect(safeNextPath("/update-password")).toBe("/");
+  });
 });
