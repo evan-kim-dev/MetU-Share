@@ -377,22 +377,24 @@ export function ProfileContent() {
             <h3 className="mb-4 text-xl font-semibold text-mu-fg">앱 설정</h3>
 
             <div className="flex flex-col">
-              <div className="flex items-center justify-between py-4">
-                <div className="flex items-center gap-3">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-membership">
+              <div className="flex items-center justify-between gap-3 py-4">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-membership">
                     <Wallet className="h-4 w-4 text-mu-fg-2" />
                   </span>
-                  <div>
-                    <p className="text-sm font-semibold tracking-wide text-mu-fg">
+                  <div className="min-w-0">
+                    <p className="whitespace-nowrap text-sm font-semibold tracking-wide text-mu-fg">
                       기본 통화
                     </p>
-                    <p className="text-sm text-mu-fg-2">예산 표시 단위</p>
+                    <p className="whitespace-nowrap text-sm text-mu-fg-2">
+                      예산 표시 단위
+                    </p>
                   </div>
                 </div>
                 <select
                   value={currency}
                   onChange={(e) => setCurrency(e.target.value)}
-                  className="rounded-lg border border-mu-line bg-mu-bg px-3 py-2 text-sm text-mu-fg focus:border-mu-accent focus:outline-none"
+                  className="max-w-[10.5rem] shrink-0 rounded-lg border border-mu-line bg-mu-bg px-3 py-2 text-sm text-mu-fg focus:border-mu-accent focus:outline-none"
                 >
                   {!currencyOptions.some((o) => o.code === currency) ? (
                     <option value={currency}>{currency}</option>
