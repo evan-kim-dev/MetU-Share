@@ -3,7 +3,11 @@ const PRODUCTION_SITE_URL = "https://met-u.vercel.app";
 
 export function resolveSiteOrigin(fallbackOrigin?: string): string {
   const fromEnv = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");
-  if (fromEnv) return fromEnv;
+  // A localhost value (e.g. copied from .env.local into Vercel) must never win
+  // on a deployed site, otherwise OAuth lands on http://localhost:3000.
+  if (fromEnv && !(isLocalOrigin(fromEnv) && isDeployedContext(fallbackOrigin))) {
+    return fromEnv;
+  }
 
   if (process.env.VERCEL_ENV === "production") {
     return PRODUCTION_SITE_URL;
@@ -27,4 +31,20 @@ export function resolveSiteOrigin(fallbackOrigin?: string): string {
   }
 
   return PRODUCTION_SITE_URL;
+}
+
+function isLocalOrigin(value: string): boolean {
+  try {
+    const host = new URL(value).hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+/** True on Vercel (server) or when the current page is not on localhost (browser). */
+function isDeployedContext(fallbackOrigin?: string): boolean {
+  if (process.env.VERCEL_ENV) return true;
+  if (fallbackOrigin) return !isLocalOrigin(fallbackOrigin);
+  return false;
 }
