@@ -11,27 +11,28 @@ export type InsightModeConfig = {
   json: boolean;
 };
 
-/**
- * 해커톤/데모: 모든 모드를 main(고가 모델)로 통일.
- * OPENAI_MODEL_MAIN / OPENAI_MODEL_FAST 로 실제 모델명을 바꿔요.
- */
+/** Ported from backend/app/services/ai_plan.py (timeouts clamped for Hobby). */
 export const INSIGHT_MODES: Record<AiMode, InsightModeConfig> = {
-  budget: { temperature: 0.45, maxTokens: 4000, timeoutMs: 75_000, cacheTtlSec: 900, model: "main", json: false },
-  party: { temperature: 0.45, maxTokens: 4000, timeoutMs: 75_000, cacheTtlSec: 900, model: "main", json: false },
-  weather: { temperature: 0.5, maxTokens: 6000, timeoutMs: 75_000, cacheTtlSec: 900, model: "main", json: true },
-  factbomb: { temperature: 0.85, maxTokens: 3500, timeoutMs: 75_000, cacheTtlSec: 300, model: "main", json: false },
-  tips: { temperature: 0.6, maxTokens: 8000, timeoutMs: 75_000, cacheTtlSec: 600, model: "main", json: true },
-  style: { temperature: 0.55, maxTokens: 3500, timeoutMs: 75_000, cacheTtlSec: 600, model: "main", json: false },
-  schedule: { temperature: 0.6, maxTokens: 5000, timeoutMs: 75_000, cacheTtlSec: 600, model: "main", json: false },
-  plan: { temperature: 0.55, maxTokens: 24000, timeoutMs: 105_000, cacheTtlSec: 600, model: "main", json: true },
-  deals: { temperature: 0.55, maxTokens: 8000, timeoutMs: 75_000, cacheTtlSec: 600, model: "main", json: true },
-  summary: { temperature: 0.55, maxTokens: 4000, timeoutMs: 75_000, cacheTtlSec: 600, model: "main", json: false },
-  deal: { temperature: 0.65, maxTokens: 8000, timeoutMs: 75_000, cacheTtlSec: 600, model: "main", json: true },
-  buddy: { temperature: 1.0, maxTokens: 4000, timeoutMs: 75_000, cacheTtlSec: 0, model: "main", json: false },
+  // plan needs quality → main; short insights → fast
+  budget: { temperature: 0.45, maxTokens: 4000, timeoutMs: 75_000, cacheTtlSec: 900, model: "fast", json: false },
+  party: { temperature: 0.45, maxTokens: 4000, timeoutMs: 75_000, cacheTtlSec: 900, model: "fast", json: false },
+  weather: { temperature: 0.5, maxTokens: 6000, timeoutMs: 75_000, cacheTtlSec: 900, model: "fast", json: true },
+  factbomb: { temperature: 0.85, maxTokens: 3500, timeoutMs: 75_000, cacheTtlSec: 300, model: "fast", json: false },
+  tips: { temperature: 0.6, maxTokens: 8000, timeoutMs: 75_000, cacheTtlSec: 600, model: "fast", json: true },
+  style: { temperature: 0.55, maxTokens: 3500, timeoutMs: 75_000, cacheTtlSec: 600, model: "fast", json: false },
+  schedule: { temperature: 0.6, maxTokens: 5000, timeoutMs: 75_000, cacheTtlSec: 600, model: "fast", json: false },
+  // 일정 JSON을 짧게 → 토큰·지연 축소 (클라 동선 최적화는 후처리)
+  // plan: max_tokens 는 gpt-6-luna 가 거부해 fallback 배너가 뜨므로 쓰지 않아요(gemini 쪽 무시).
+  // 캐시는 깨진 JSON 이 남지 않게 끄고, 타임아웃은 안정적으로 유지해요.
+  plan: { temperature: 0.45, maxTokens: 8000, timeoutMs: 75_000, cacheTtlSec: 0, model: "main", json: true },
+  deals: { temperature: 0.55, maxTokens: 8000, timeoutMs: 75_000, cacheTtlSec: 600, model: "fast", json: true },
+  summary: { temperature: 0.55, maxTokens: 1500, timeoutMs: 25_000, cacheTtlSec: 600, model: "fast", json: false },
+  deal: { temperature: 0.65, maxTokens: 8000, timeoutMs: 75_000, cacheTtlSec: 600, model: "fast", json: true },
+  buddy: { temperature: 1.0, maxTokens: 4000, timeoutMs: 75_000, cacheTtlSec: 0, model: "fast", json: false },
   itinerary: { temperature: 0.4, maxTokens: 8000, timeoutMs: 75_000, cacheTtlSec: 600, model: "main", json: true },
   itinerary_patch: { temperature: 0.3, maxTokens: 3000, timeoutMs: 45_000, cacheTtlSec: 0, model: "main", json: true },
-  expense_parse: { temperature: 0.2, maxTokens: 2000, timeoutMs: 30_000, cacheTtlSec: 0, model: "main", json: true },
-  expense_text: { temperature: 0.2, maxTokens: 2000, timeoutMs: 30_000, cacheTtlSec: 0, model: "main", json: true },
+  expense_parse: { temperature: 0.2, maxTokens: 2000, timeoutMs: 30_000, cacheTtlSec: 0, model: "fast", json: true },
+  expense_text: { temperature: 0.2, maxTokens: 2000, timeoutMs: 30_000, cacheTtlSec: 0, model: "fast", json: true },
   receipt_vision: { temperature: 0.2, maxTokens: 4000, timeoutMs: 75_000, cacheTtlSec: 0, model: "main", json: true },
 };
 

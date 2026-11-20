@@ -294,6 +294,7 @@ async function enrichPlanWithAi(params: {
   fallbackTips: string[];
   allocation: BudgetAllocation[];
   knowledge?: DestinationKnowledge | null;
+  clientKey?: string;
 }): Promise<{
   summary?: string;
   flight: FlightPlan;
@@ -302,39 +303,55 @@ async function enrichPlanWithAi(params: {
   tips: string[];
   source: "ai" | "fallback";
 }> {
-  const chat = await aiChatOrNull({
+  const promptArgs = {
+    origin: params.origin,
+    destination: params.destination,
+    country: params.country,
+    nights: params.nights,
+    people: params.people,
+    totalBudget: params.totalBudget,
+    perPerson: params.perPerson,
+    dateRange: params.dateRange,
+    styleLabels: params.styleLabels,
+    flightBudget: params.flightBudget,
+    hotelBudget: params.hotelBudget,
+    ragContexts: params.ragContexts,
+    destinationSummary: params.destinationSummary,
+    attractions: params.attractions,
+  };
+
+  let chat = await aiChatOrNull({
     mode: "plan",
     system: getPlanSystemPrompt(),
-    prompt: buildPlanItineraryPrompt({
-      origin: params.origin,
-      destination: params.destination,
-      country: params.country,
-      nights: params.nights,
-      people: params.people,
-      totalBudget: params.totalBudget,
-      perPerson: params.perPerson,
-      dateRange: params.dateRange,
-      styleLabels: params.styleLabels,
-      flightBudget: params.flightBudget,
-      hotelBudget: params.hotelBudget,
-      ragContexts: params.ragContexts,
-      destinationSummary: params.destinationSummary,
-      attractions: params.attractions,
-    }),
+    prompt: buildPlanItineraryPrompt(promptArgs),
+    clientKey: params.clientKey,
   });
 
-  if (!chat) {
-    return {
-      flight: params.fallbackFlight,
-      hotel: params.fallbackHotel,
-      dailySchedule: params.fallbackSchedule,
-      tips: params.fallbackTips,
-      source: "fallback",
-    };
+  let parsed = chat ? parsePlanItinerary(chat.content) : null;
+  if (!parsed) {
+    // 1회 재시도: 프롬프트를 더 줄여 JSON 완성도를 올려요.
+    const preview = chat?.content?.slice(0, 160)?.replace(/\s+/g, " ") ?? "";
+    console.error(
+      `[enrichPlanWithAi] first attempt ${chat ? `parse-failed len=${chat.content.length} preview=${preview}` : "llm-null"} → retry`
+    );
+    chat = await aiChatOrNull({
+      mode: "plan",
+      system: getPlanSystemPrompt(),
+      prompt: buildPlanItineraryPrompt({
+        ...promptArgs,
+        ragContexts: params.ragContexts.slice(0, 4),
+        attractions: params.attractions?.slice(0, 6),
+      }),
+      clientKey: params.clientKey,
+    });
+    parsed = chat ? parsePlanItinerary(chat.content) : null;
   }
 
-  const parsed = parsePlanItinerary(chat.content);
   if (!parsed) {
+    const preview = chat?.content?.slice(0, 160)?.replace(/\s+/g, " ") ?? "";
+    console.error(
+      `[enrichPlanWithAi] plan enrich failed after retry${chat ? ` len=${chat.content.length} preview=${preview}` : " (llm-null)"}`
+    );
     return {
       flight: params.fallbackFlight,
       hotel: params.fallbackHotel,
@@ -603,7 +620,9 @@ export async function buildFallbackTripPlanAsync(
     source: "empty",
   };
   try {
-    knowledge = await fetchDestinationKnowledge(city, country || "");
+    knowledge = await fetchDestinationKnowledge(city, country || "", {
+      timeoutMs: 5_000,
+    });
   } catch (error) {
     console.error("[destination-knowledge] fetch failed:", error);
   }
@@ -695,7 +714,7 @@ export async function buildFallbackTripPlanAsync(
 export async function enrichTripPlanWithAi(
   fallback: TripRecommendation,
   prefetchedKnowledge?: DestinationKnowledge | null,
-  options?: { skipRouteOptimize?: boolean }
+  options?: { skipRouteOptimize?: boolean; clientKey?: string }
 ): Promise<TripRecommendation> {
   const form = fallback.form;
   const totalBudget = fallback.totalBudget;
@@ -718,7 +737,9 @@ export async function enrichTripPlanWithAi(
   let knowledge = prefetchedKnowledge ?? null;
   if (!knowledge) {
     try {
-      knowledge = await fetchDestinationKnowledge(city, country || "");
+      knowledge = await fetchDestinationKnowledge(city, country || "", {
+        timeoutMs: 5_000,
+      });
     } catch (error) {
       console.error("[destination-knowledge] enrich fetch failed:", error);
       knowledge = {
@@ -783,7 +804,7 @@ export async function enrichTripPlanWithAi(
       hotelBudget: hotelAmount,
       ragContexts,
       destinationSummary: knowledge.summary,
-      attractions: knowledge.attractions.map((a) => ({
+      attractions: knowledge.attractions.slice(0, 8).map((a) => ({
         name: a.name,
         detail: a.detail,
       })),
@@ -801,6 +822,7 @@ export async function enrichTripPlanWithAi(
       fallbackTips: baseFallbackTips,
       allocation: budgetAllocation,
       knowledge,
+      clientKey: options?.clientKey,
     }),
   ]);
 
@@ -868,10 +890,12 @@ export async function enrichTripPlanWithAi(
       ? baseSummary
       : enriched.summary || baseSummary;
 
-  let dailySchedule =
-    options?.skipRouteOptimize || fallbackHasPlaces
-      ? scheduleBase
-      : enriched.dailySchedule;
+  // placeId 일정이 있으면 유지, 아니면 AI plan 일정(없으면 지식 폴백)
+  let dailySchedule = fallbackHasPlaces
+    ? scheduleBase
+    : enriched.dailySchedule?.length
+      ? enriched.dailySchedule
+      : scheduleBase;
   let tipsOut = tips;
   let routeOptimization: TripRecommendation["routeOptimization"];
 
@@ -909,7 +933,7 @@ export async function enrichTripPlanWithAi(
     } catch (error) {
       console.error("[route-optimize] skipped:", error);
     }
-  } else if (options?.skipRouteOptimize) {
+  } else if (fallbackHasPlaces) {
     ragSources.push({
       id: "place-itinerary-ai",
       category: "일정",

@@ -362,9 +362,9 @@ export function buildPlanItineraryPrompt(params: {
           .join("\n")
       : "(없음 — 위키/지도 기반 명소를 최대한 실명으로 작성)";
 
-  return `당신은 Met U 여행 플래너입니다. 입력·CITY_SUMMARY·DESTINATION_ATTRACTIONS·RAG만 근거로 매우 풍부하고 구체적인 맞춤 일정을 JSON으로 만드세요.
+  return `당신은 Met U 여행 플래너입니다. 입력·CITY_SUMMARY·DESTINATION_ATTRACTIONS·RAG만 근거로 압축된 맞춤 일정을 JSON으로 만드세요.
 ${AI_QUALITY_FIRST}
-현지 장소·동선·식사·휴식·이동 시간·소요 팁까지 디테일하게 채워 주세요.
+속도 우선: 핵심 동선만 짧게. 장황한 설명·중복 금지.
 
 [입력]
 - 출발: ${params.origin || "미입력"}
@@ -383,31 +383,29 @@ ${params.destinationSummary?.trim() || "(요약 없음)"}
 ${attractionBlock}
 
 [RAG]
-${params.ragContexts.map((c, i) => `${i + 1}. ${c}`).join("\n")}
+${params.ragContexts.slice(0, 6).map((c, i) => `${i + 1}. ${c}`).join("\n")}
 
 출력(JSON만):
 {
-  "summary": "4~6문장 일정 요약 (분위기·하이라이트·동선·식사·휴식 포인트). ${params.nights}박 ${days}일을 정확히 반영",
-  "flight": {"airline":"항공사 또는 저비용 항공 추천","schedule":"가는 편 HH:MM · 오는 편 HH:MM","note":"예약·환승·수하물·좌석 팁 2~3문장"},
-  "hotel": {"name":"숙소 유형명","area":"추천 지역","note":"위치·조식·체크인·주변 동선 팁 2~3문장"},
+  "summary": "2~3문장 일정 요약. ${params.nights}박 ${days}일 반영",
+  "flight": {"airline":"항공사 또는 저비용 항공 추천","schedule":"가는 편 HH:MM · 오는 편 HH:MM","note":"예약·수하물 팁 1문장"},
+  "hotel": {"name":"숙소 유형명","area":"추천 지역","note":"위치·체크인 팁 1문장"},
   "dailySchedule":[
-    {"day":1,"label":"데이 제목","items":[{"time":"14:00","title":"소제목 (이동·장소 한 줄)","detail":"구체적인 행동·소요·팁 한두 문장"}]}
+    {"day":1,"label":"데이 제목","items":[{"time":"14:00","title":"소제목","detail":"해요체 한 문장"}]}
   ],
-  "tips":["팁1","팁2","팁3","팁4","팁5","팁6","팁7","팁8"]
+  "tips":["팁1","팁2","팁3","팁4"]
 }
 
 규칙:
 - dailySchedule은 정확히 ${days}일 (박수 ${params.nights} 반영)
-- **label은 날마다 서로 달라야 함**: "${params.destination} 도착 · 체크인", 명소·구역 이름(예: "하카타 · 캐널시티"), "체크아웃 · 귀국"처럼 그날을 한눈에 알 수 있는 한국어 테마. "핵심 관광"·"자유 일정"처럼 모든 날에 반복되는 라벨 금지
-- 1일차=도착·이동·체크인, 중간일=서로 다른 구역·명소 클러스터, 마지막날=체크아웃·귀국 동선
-- 각 day items 6~8개, time은 HH:MM
-- title은 **짧은 소제목** (예: "지하철 → 하카타역", "오호리공원"). DESTINATION_ATTRACTIONS에 있는 실명을 우선 사용. 목록에 없는 유명 명소도 실제로 존재하는 이름만 허용
-- "대표 명소", "로컬 레스토랑", "자유 시간", "시내 투어", "시내 핵심 스팟"처럼 장소가 특정되지 않은 막연한 title 금지
-- **모든 item에 detail 필수**: 소요시간·가는 법·팁을 해요체 1~2문장 (${params.destination} 맥락)
-- 같은 날 장소는 지리적으로 가까운 순으로 배치 (불필요한 시내 왕복 최소화)
-- 아침·점심·저녁·카페·이동·핵심 관광·야경/야시장을 균형 있게
-- tips는 8개, 각각 실용적인 1~2문장 (해요체)
-- 항공·숙소 임의 견적 금액(원/%) 금지
+- **label은 날마다 서로 달라야 함**: "${params.destination} 도착 · 체크인", 구역·명소 이름, "체크아웃 · 귀국"처럼 짧은 테마. 반복 라벨 금지
+- 1일차=도착·체크인, 중간일=서로 다른 구역, 마지막날=체크아웃·귀국
+- 각 day items **4~5개만**, time은 HH:MM (식사 1~2 + 명소 2~3)
+- title은 짧은 실명 소제목. DESTINATION_ATTRACTIONS 우선. 막연한 title 금지
+- detail은 **한 문장**만 (${params.destination} 맥락)
+- 같은 날 장소는 가까운 순
+- tips는 **4개**, 각 1문장 (해요체)
+- 항공·숙소 임의 견적 금액 금지
 - summary·note·tips·detail 모두 해요체
 - JSON만 출력
 - ${AI_VOICE}`;
@@ -476,7 +474,7 @@ ${params.ragContexts.map((c, i) => `${i + 1}. ${c}`).join("\n")}
 규칙:
 - 정확히 6곳, 서로 다른 도시
 - tier는 가성비/보통/프리미엄 중 하나 (영문 value/standard/premium 허용)
-- highlight는 한국어 1문장(필요하면 최대 2문장), 24~40자, 해요체. 시즌 이유만 짧게. 누구에게 맞는지·나열형 설명 금지
+- highlight는 한국어 40~80자, 해요체, 시즌 이유·누구에게 맞는지 포함
 - 항공·호텔·총액 등 숫자 가격/시세/원·만원 표현 금지 (fromPrice, flightFrom, hotelFrom 필드 금지)
 - 허위 시세 단정 금지
 - ${AI_VOICE}`;
