@@ -22,7 +22,7 @@ import {
   type SplitChatRoomProps,
   type SplitChatSendResponse,
 } from "./split-chat-room-types";
-import { mergeSplitChatMessages, toSplitChatMembers } from "./split-chat-room-utils";
+import { mergeSplitChatMessages } from "./split-chat-room-utils";
 
 export type { SplitChatMember } from "./split-chat-room-types";
 export { toSplitChatMembers } from "./split-chat-room-utils";
