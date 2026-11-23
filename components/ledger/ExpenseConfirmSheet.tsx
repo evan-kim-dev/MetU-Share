@@ -2,8 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Sheet } from "@/components/ds/Sheet";
-import { FxAttribution } from "@/components/fx/FxAttribution";
-import type { ExpenseDraftInput } from "@/lib/ledger/draft";
 import {
   findDuplicateCandidates,
   type DuplicateCandidate,
@@ -12,31 +10,14 @@ import { getFxQuote } from "@/lib/ledger/fx";
 import { computeKrw } from "@/lib/ledger/money";
 import { computeShares } from "@/lib/ledger/settle";
 import { listExpenses, saveExpense } from "@/lib/ledger/supabase";
-import type { LedgerExpenseRow, TripMember } from "@/lib/ledger/types";
 import { useCurrencyOptions } from "@/lib/fx/currency-list";
-import { formatKRW } from "@/lib/shared/format";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 
-const CATEGORIES = ["식비", "교통", "숙소", "관광", "쇼핑", "기타"] as const;
-
-type CardProfile = {
-  id: string;
-  label: string;
-  fee_rate: number | null;
-  fee_flat_krw: number;
-};
-
-type Props = {
-  tripId: string;
-  members: TripMember[];
-  drafts: ExpenseDraftInput[];
-  index: number;
-  onIndexChange: (i: number) => void;
-  onClose: () => void;
-  /** 하위 호환: 인자 없이 호출해도 됨. 저장 행을 넘기면 제안 승인에 재사용. */
-  onSaved: (row?: LedgerExpenseRow) => void;
-  cardProfiles?: CardProfile[];
-};
+import { EXPENSE_CONFIRM_CATEGORIES } from "./expense-confirm-constants";
+import type { ExpenseConfirmSheetProps } from "./expense-confirm-types";
+import { ExpenseConfirmDuplicateBanner } from "./ExpenseConfirmDuplicateBanner";
+import { ExpenseConfirmFxSection } from "./ExpenseConfirmFxSection";
+import { ExpenseConfirmWarnings } from "./ExpenseConfirmWarnings";
 
 export function ExpenseConfirmSheet({
   tripId,
@@ -47,7 +28,7 @@ export function ExpenseConfirmSheet({
   onClose,
   onSaved,
   cardProfiles = [],
-}: Props) {
+}: ExpenseConfirmSheetProps) {
   const draft = drafts[index];
   const [merchant, setMerchant] = useState(draft?.merchant ?? "");
   const [merchantKo, setMerchantKo] = useState(draft?.merchantKo ?? "");
@@ -334,276 +315,195 @@ export function ExpenseConfirmSheet({
         </button>
       }
     >
-        {dupes.length > 0 && !ignoreDupes ? (
-          <div className="mb-3 rounded-xl border border-mu-warn bg-mu-warn-soft px-3 py-2 text-xs">
-            <p className="font-bold text-mu-warn">같은 결제 같아요</p>
-            <p className="mt-1 text-mu-warn">
-              후보 {dupes.length}건 · 점수 {dupes[0]!.score}
-            </p>
-            <div className="mt-2 flex gap-2">
-              <button
-                type="button"
-                className="font-bold text-mu-warn underline"
-                onClick={onClose}
-              >
-                합치기(저장 취소)
-              </button>
-              <button
-                type="button"
-                className="font-bold text-mu-warn underline"
-                onClick={() => setIgnoreDupes(true)}
-              >
-                다른 결제예요
-              </button>
-            </div>
-          </div>
-        ) : null}
+      {dupes.length > 0 && !ignoreDupes ? (
+        <ExpenseConfirmDuplicateBanner
+          dupes={dupes}
+          onClose={onClose}
+          onIgnore={() => setIgnoreDupes(true)}
+        />
+      ) : null}
 
-        {(draft.warnings?.length || (feeUnset && paymentMethod === "card")) && (
-          <ul className="mb-3 flex flex-col gap-1">
-            {draft.timeIsEstimated ? (
-              <li className="rounded-md bg-mu-warn-soft px-2 py-1 text-xs font-semibold text-mu-warn">
-                시간 추정
-              </li>
-            ) : null}
-            {feeUnset && paymentMethod === "card" ? (
-              <li className="rounded-md bg-mu-warn-soft px-2 py-1 text-xs font-semibold text-mu-warn">
-                수수료 미설정
-              </li>
-            ) : null}
-            {(draft.warnings ?? []).map((w) => (
-              <li
-                key={w}
-                className="rounded-md bg-mu-sunken px-2 py-1 text-[11px] font-semibold text-mu-fg-2"
-              >
-                {w}
-              </li>
-            ))}
-          </ul>
-        )}
+      <ExpenseConfirmWarnings
+        draft={draft}
+        feeUnset={feeUnset}
+        paymentMethod={paymentMethod}
+      />
 
-        <div className="flex flex-col gap-3 text-sm">
+      <div className="flex flex-col gap-3 text-sm">
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-bold">상호(원문)</span>
+          <input
+            className="rounded-lg border border-mu-line px-3 py-2"
+            value={merchant}
+            onChange={(e) => setMerchant(e.target.value)}
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-bold">상호(한국어)</span>
+          <input
+            className="rounded-lg border border-mu-line px-3 py-2"
+            value={merchantKo}
+            onChange={(e) => setMerchantKo(e.target.value)}
+          />
+        </label>
+        <div className="grid grid-cols-2 gap-2">
           <label className="flex flex-col gap-1">
-            <span className="text-xs font-bold">상호(원문)</span>
+            <span className="text-xs font-bold">금액</span>
             <input
+              inputMode="decimal"
               className="rounded-lg border border-mu-line px-3 py-2"
-              value={merchant}
-              onChange={(e) => setMerchant(e.target.value)}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-xs font-bold">상호(한국어)</span>
-            <input
-              className="rounded-lg border border-mu-line px-3 py-2"
-              value={merchantKo}
-              onChange={(e) => setMerchantKo(e.target.value)}
-            />
-          </label>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-bold">금액</span>
-              <input
-                inputMode="decimal"
-                className="rounded-lg border border-mu-line px-3 py-2"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-bold">통화</span>
-              <select
-                className="rounded-lg border border-mu-line px-3 py-2"
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value)}
-              >
-                {!currencyOptions.some((o) => o.code === currency) ? (
-                  <option value={currency}>{currency}</option>
-                ) : null}
-                {currencyOptions.map((o) => (
-                  <option key={o.code} value={o.code}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <label className="flex flex-col gap-1">
-            <span className="text-xs font-bold">날짜</span>
-            <input
-              type="date"
-              className="rounded-lg border border-mu-line px-3 py-2"
-              value={spentOn}
-              onChange={(e) => setSpentOn(e.target.value)}
-            />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-xs font-bold">카테고리</span>
+            <span className="text-xs font-bold">통화</span>
             <select
               className="rounded-lg border border-mu-line px-3 py-2"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value)}
             >
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="flex gap-2">
-            {(["card", "cash", "transfer"] as const).map((m) => (
-              <button
-                key={m}
-                type="button"
-                className={`rounded-lg px-3 py-1.5 text-xs font-bold ${
-                  paymentMethod === m
-                    ? "bg-mu-accent text-mu-on-accent"
-                    : "bg-mu-sunken text-mu-fg-2"
-                }`}
-                onClick={() => setPaymentMethod(m)}
-              >
-                {m === "card" ? "카드" : m === "cash" ? "현금" : "이체"}
-              </button>
-            ))}
-          </div>
-          {paymentMethod === "card" && cardProfiles.length > 0 ? (
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-bold">카드 프로필</span>
-              <select
-                className="rounded-lg border border-mu-line px-3 py-2"
-                value={cardProfileId}
-                onChange={(e) => setCardProfileId(e.target.value)}
-              >
-                <option value="">선택 안 함</option>
-                {cardProfiles.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          <label className="flex flex-col gap-1">
-            <span className="text-xs font-bold">결제자</span>
-            <select
-              className="rounded-lg border border-mu-line px-3 py-2"
-              value={payerId}
-              onChange={(e) => setPayerId(e.target.value)}
-            >
-              {members.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.displayName}
-                </option>
-              ))}
-            </select>
-          </label>
-          <fieldset className="flex flex-col gap-1">
-            <legend className="text-xs font-bold">참여자</legend>
-            <div className="flex flex-wrap gap-2">
-              {members.map((m) => {
-                const on = participants.includes(m.id);
-                return (
-                  <label
-                    key={m.id}
-                    className={`cursor-pointer rounded-lg px-2 py-1 text-xs font-semibold ${
-                      on ? "bg-mu-accent/15 text-mu-accent" : "bg-mu-sunken"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      className="mr-1"
-                      checked={on}
-                      onChange={() =>
-                        setParticipants((prev) =>
-                          on
-                            ? prev.filter((id) => id !== m.id)
-                            : [...prev, m.id]
-                        )
-                      }
-                    />
-                    {m.displayName}
-                  </label>
-                );
-              })}
-            </div>
-          </fieldset>
-
-          {breakdown && fxRate != null ? (
-            <div className="rounded-xl bg-mu-sunken px-3 py-2 text-xs">
-              <p className="font-bold text-mu-fg">
-                약 {formatKRW(breakdown.krwBase)}
-                {breakdown.feeKrw > 0
-                  ? ` + 수수료 ${formatKRW(breakdown.feeKrw)}`
-                  : ""}{" "}
-                = {formatKRW(breakdown.krwAmount)}
-              </p>
-              <p className="mt-1 text-mu-fg-3">
-                환율 {fxRate}
-                {fxMeta?.rateDate
-                  ? fxMeta.isFallback
-                    ? ` · 마지막 업데이트 ${fxMeta.rateDate}`
-                    : ` · 기준일 ${fxMeta.rateDate}`
-                  : ""}
-                {fxMeta?.source === "cash_manual" ? " · 현금 환율" : " · 일자별"}
-                {fxMeta?.isFallback ? " · 대체값(확인 필요)" : ""}
-              </p>
-              <label className="mt-2 flex items-center gap-2">
-                <span>환율 직접 수정</span>
-                <input
-                  inputMode="decimal"
-                  className="w-28 rounded border border-mu-line px-2 py-1"
-                  value={String(fxRate)}
-                  onChange={(e) => {
-                    const n = Number(e.target.value);
-                    if (Number.isFinite(n) && n > 0) setFxRate(n);
-                  }}
-                />
-              </label>
-              <FxAttribution />
-            </div>
-          ) : (
-            <div className="rounded-xl bg-mu-sunken px-3 py-2 text-xs">
-              <p className="font-semibold text-mu-err">
-                {paymentMethod === "cash"
-                  ? "현금 환율을 입력하거나 설정해 주세요."
-                  : fxLoadFailed
-                    ? "환율을 불러올 수 없어요. 직접 입력해 주세요"
-                    : "환율을 불러오는 중이에요…"}
-              </p>
-              {currency !== "KRW" && paymentMethod !== "cash" ? (
-                <label className="mt-2 flex items-center gap-2">
-                  <span>1 {currency} =</span>
-                  <input
-                    inputMode="decimal"
-                    className="w-28 rounded border border-mu-line-strong bg-mu-card px-2 py-1"
-                    value={manualFxDraft}
-                    placeholder="원화"
-                    onChange={(e) => {
-                      setManualFxDraft(e.target.value);
-                      const n = Number(e.target.value);
-                      if (Number.isFinite(n) && n > 0) {
-                        setFxRate(n);
-                        setFxMeta({
-                          rateDate: spentOn,
-                          source: "cash_manual",
-                          isFallback: true,
-                        });
-                      } else {
-                        setFxRate(null);
-                      }
-                    }}
-                  />
-                  <span>원</span>
-                </label>
+              {!currencyOptions.some((o) => o.code === currency) ? (
+                <option value={currency}>{currency}</option>
               ) : null}
-              <FxAttribution />
-            </div>
-          )}
+              {currencyOptions.map((o) => (
+                <option key={o.code} value={o.code}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
-
-        {error ? (
-          <p className="mt-2 text-xs font-semibold text-mu-err">{error}</p>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-bold">날짜</span>
+          <input
+            type="date"
+            className="rounded-lg border border-mu-line px-3 py-2"
+            value={spentOn}
+            onChange={(e) => setSpentOn(e.target.value)}
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-bold">카테고리</span>
+          <select
+            className="rounded-lg border border-mu-line px-3 py-2"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+          >
+            {EXPENSE_CONFIRM_CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="flex gap-2">
+          {(["card", "cash", "transfer"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              className={`rounded-lg px-3 py-1.5 text-xs font-bold ${
+                paymentMethod === m
+                  ? "bg-mu-accent text-mu-on-accent"
+                  : "bg-mu-sunken text-mu-fg-2"
+              }`}
+              onClick={() => setPaymentMethod(m)}
+            >
+              {m === "card" ? "카드" : m === "cash" ? "현금" : "이체"}
+            </button>
+          ))}
+        </div>
+        {paymentMethod === "card" && cardProfiles.length > 0 ? (
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-bold">카드 프로필</span>
+            <select
+              className="rounded-lg border border-mu-line px-3 py-2"
+              value={cardProfileId}
+              onChange={(e) => setCardProfileId(e.target.value)}
+            >
+              <option value="">선택 안 함</option>
+              {cardProfiles.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </label>
         ) : null}
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-bold">결제자</span>
+          <select
+            className="rounded-lg border border-mu-line px-3 py-2"
+            value={payerId}
+            onChange={(e) => setPayerId(e.target.value)}
+          >
+            {members.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
+        <fieldset className="flex flex-col gap-1">
+          <legend className="text-xs font-bold">참여자</legend>
+          <div className="flex flex-wrap gap-2">
+            {members.map((m) => {
+              const on = participants.includes(m.id);
+              return (
+                <label
+                  key={m.id}
+                  className={`cursor-pointer rounded-lg px-2 py-1 text-xs font-semibold ${
+                    on ? "bg-mu-accent/15 text-mu-accent" : "bg-mu-sunken"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="mr-1"
+                    checked={on}
+                    onChange={() =>
+                      setParticipants((prev) =>
+                        on
+                          ? prev.filter((id) => id !== m.id)
+                          : [...prev, m.id]
+                      )
+                    }
+                  />
+                  {m.displayName}
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
+
+        <ExpenseConfirmFxSection
+          breakdown={breakdown}
+          fxRate={fxRate}
+          fxMeta={fxMeta}
+          fxLoadFailed={fxLoadFailed}
+          currency={currency}
+          paymentMethod={paymentMethod}
+          manualFxDraft={manualFxDraft}
+          onFxRateChange={(n) => setFxRate(n)}
+          onManualFxInput={(value) => {
+            setManualFxDraft(value);
+            const n = Number(value);
+            if (Number.isFinite(n) && n > 0) {
+              setFxRate(n);
+              setFxMeta({
+                rateDate: spentOn,
+                source: "cash_manual",
+                isFallback: true,
+              });
+            } else {
+              setFxRate(null);
+            }
+          }}
+        />
+      </div>
+
+      {error ? (
+        <p className="mt-2 text-xs font-semibold text-mu-err">{error}</p>
+      ) : null}
     </Sheet>
   );
 }

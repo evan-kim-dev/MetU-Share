@@ -1,284 +1,31 @@
 "use client";
 
-import { Bot, Paperclip, Send, X, Zap } from "lucide-react";
+import { Paperclip, Send, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Button } from "@/components/ds/Button";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import {
-  type SplitAttachmentPayload,
-  type SplitChatMessage,
-  type SplitPreviewPayload,
-} from "@/lib/ledger/split-chat";
+import type { SplitChatMessage, SplitPreviewPayload } from "@/lib/ledger/split-chat";
 import { uploadSplitChatAttachment } from "@/lib/ledger/split-chat-attachments";
 import { subscribeSplitChatMessages } from "@/lib/ledger/split-chat-client";
-import type { TripMember } from "@/lib/ledger/types";
-import { formatKRW } from "@/lib/shared/format";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 
-export type SplitChatMember = {
-  id: string;
-  displayName: string;
-  userId?: string | null;
-};
+import {
+  SplitChatMemberAvatar,
+  SplitChatMessageBubbleContent,
+  SplitChatPreviewCard,
+  SplitChatSystemBanner,
+} from "./split-chat-room-parts";
+import {
+  type SplitChatConfirmResponse,
+  type SplitChatListResponse,
+  type SplitChatMember,
+  type SplitChatRoomProps,
+  type SplitChatSendResponse,
+} from "./split-chat-room-types";
+import { mergeSplitChatMessages, toSplitChatMembers } from "./split-chat-room-utils";
 
-type Props = {
-  tripId: string;
-  /** 여행 멤버 — 헤더·말풍선 아바타에 표시 */
-  members?: readonly SplitChatMember[];
-  /** overlay: 풀스크린 시트. inline: 정산 화면 안 카톡형 패널(기본). */
-  variant?: "inline" | "overlay";
-  open?: boolean;
-  onClose?: () => void;
-  /** 고급 분담(칩/배치) 경로 */
-  onOpenAdvanced?: () => void;
-};
-
-type ListResponse = {
-  ok?: boolean;
-  threadId?: string;
-  messages?: SplitChatMessage[];
-  error?: string;
-};
-
-type SendResponse = {
-  ok?: boolean;
-  threadId?: string;
-  userMessage?: SplitChatMessage | null;
-  agentMessage?: SplitChatMessage | null;
-  error?: string;
-};
-
-type ConfirmResponse = {
-  ok?: boolean;
-  already?: boolean;
-  systemMessage?: SplitChatMessage | null;
-  error?: string;
-  message?: string;
-};
-
-const AVATAR_TONES = [
-  "bg-mu-accent-soft text-mu-accent",
-  "bg-mu-ok-soft text-mu-ok",
-  "bg-mu-warn-soft text-mu-warn",
-  "bg-mu-sunken text-mu-fg-2",
-] as const;
-
-function initialOf(name: string): string {
-  const t = name.trim();
-  if (!t) return "?";
-  return t.slice(0, 1);
-}
-
-function toneFor(key: string): string {
-  let h = 0;
-  for (let i = 0; i < key.length; i++) h = (h + key.charCodeAt(i) * (i + 1)) % 97;
-  return AVATAR_TONES[h % AVATAR_TONES.length]!;
-}
-
-function MemberAvatar({
-  name,
-  toneKey,
-  bot,
-  size = "md",
-}: {
-  name: string;
-  toneKey: string;
-  bot?: boolean;
-  size?: "sm" | "md";
-}) {
-  const box = size === "sm" ? "h-8 w-8 text-mu-caption" : "h-9 w-9 text-mu-label";
-  if (bot) {
-    return (
-      <div
-        className={`flex shrink-0 items-center justify-center rounded-full bg-mu-accent text-mu-on-accent ${box}`}
-        aria-hidden
-      >
-        <Bot className={size === "sm" ? "h-4 w-4" : "h-5 w-5"} />
-      </div>
-    );
-  }
-  return (
-    <div
-      className={`flex shrink-0 items-center justify-center rounded-full font-bold ${box} ${toneFor(toneKey)}`}
-      aria-hidden
-    >
-      {initialOf(name)}
-    </div>
-  );
-}
-
-function mergeMessages(
-  prev: SplitChatMessage[],
-  next: SplitChatMessage
-): SplitChatMessage[] {
-  if (prev.some((m) => m.id === next.id)) return prev;
-  return [...prev, next].sort((a, b) =>
-    a.createdAt.localeCompare(b.createdAt)
-  );
-}
-
-function AttachmentBlock({
-  payload,
-  onAccent,
-}: {
-  payload: SplitAttachmentPayload;
-  onAccent?: boolean;
-}) {
-  if (payload.kind === "image") {
-    return (
-      <a
-        href={payload.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="block overflow-hidden rounded-mu-md"
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element -- 채팅 첨부 미리보기 */}
-        <img
-          src={payload.url}
-          alt={payload.fileName}
-          className="max-h-48 w-full object-cover"
-        />
-      </a>
-    );
-  }
-  return (
-    <a
-      href={payload.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={`inline-flex min-h-tap items-center gap-2 break-all text-mu-caption font-semibold underline ${
-        onAccent ? "text-mu-on-accent" : "text-mu-accent"
-      }`}
-    >
-      <Paperclip className="h-4 w-4 shrink-0" aria-hidden />
-      {payload.fileName}
-    </a>
-  );
-}
-
-function MessageBubbleContent({
-  message,
-  onAccent,
-}: {
-  message: SplitChatMessage;
-  onAccent?: boolean;
-}) {
-  const attach =
-    message.payload?.type === "attachment" ? message.payload : null;
-  const showBody =
-    !attach ||
-    (message.body !== "사진" && message.body !== attach.fileName);
-
-  return (
-    <div className="flex flex-col gap-2">
-      {attach ? <AttachmentBlock payload={attach} onAccent={onAccent} /> : null}
-      {showBody || !attach ? (
-        <p className="whitespace-pre-wrap">{message.body}</p>
-      ) : null}
-    </div>
-  );
-}
-
-function PreviewCard({
-  message,
-  payload,
-  isAnonymous,
-  confirmingId,
-  onConfirm,
-  onDismiss,
-}: {
-  message: SplitChatMessage;
-  payload: SplitPreviewPayload;
-  isAnonymous: boolean;
-  confirmingId: string | null;
-  onConfirm: (message: SplitChatMessage, payload: SplitPreviewPayload) => void;
-  onDismiss: (messageId: string) => void;
-}) {
-  const guestBlocked = isAnonymous && !payload.canGuestConfirm;
-  const busy = confirmingId === message.id;
-
-  return (
-    <div
-      data-testid="split-preview-card"
-      className="mt-2 border-t border-mu-line pt-2"
-    >
-      <p className="text-mu-caption font-semibold text-mu-fg-2">
-        {payload.label}
-      </p>
-      <ul className="mt-1.5 space-y-1">
-        {payload.after.map((row) => {
-          const before =
-            payload.before.find((b) => b.memberId === row.memberId)?.krw ?? 0;
-          const changed = before !== row.krw;
-          return (
-            <li
-              key={row.memberId}
-              className="flex items-center justify-between gap-2 text-mu-caption"
-            >
-              <span className="text-mu-fg">{row.name}</span>
-              <span
-                className={`mu-num font-bold ${
-                  changed ? "text-mu-accent" : "text-mu-fg-3"
-                }`}
-              >
-                {changed ? `${formatKRW(before)} → ` : ""}
-                {formatKRW(row.krw)}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-      {guestBlocked ? (
-        <p className="mt-2 text-mu-caption text-mu-warn">
-          다른 사람 몫 변경은 호스트만 확인할 수 있어요.
-        </p>
-      ) : (
-        <div className="mt-3 flex gap-2">
-          <Button
-            type="button"
-            variant="primary"
-            size="md"
-            className="min-h-11 flex-1 rounded-full"
-            loading={busy}
-            disabled={busy}
-            onClick={() => onConfirm(message, payload)}
-          >
-            적용
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            size="md"
-            className="min-h-11 flex-1 rounded-full"
-            disabled={busy}
-            onClick={() => onDismiss(message.id)}
-          >
-            되돌리기
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SystemBanner({ body }: { body: string }) {
-  const looksLikeCard =
-    body.includes("카드") || body.includes("승인") || body.includes("알림");
-  return (
-    <div
-      className="mx-auto flex max-w-[94%] items-start gap-2 rounded-mu-lg border border-mu-line bg-mu-card px-3 py-2.5 text-left text-mu-caption text-mu-fg shadow-sm"
-      role="status"
-    >
-      {looksLikeCard ? (
-        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-mu-warn-soft text-mu-warn">
-          <Zap className="h-3 w-3" strokeWidth={2.5} aria-hidden />
-        </span>
-      ) : null}
-      <p className="min-w-0 flex-1 leading-snug">{body}</p>
-    </div>
-  );
-}
+export type { SplitChatMember } from "./split-chat-room-types";
+export { toSplitChatMembers } from "./split-chat-room-utils";
 
 /**
  * 분담 실시간 대화방. MetU AI 미리보기 → 확인 시에만 서버 apply.
@@ -290,7 +37,7 @@ export function SplitChatRoom({
   open = true,
   onClose,
   onOpenAdvanced,
-}: Props) {
+}: SplitChatRoomProps) {
   const { user, isAnonymous } = useAuth();
   const myId = user?.id ?? null;
   const [threadId, setThreadId] = useState<string | null>(null);
@@ -339,7 +86,7 @@ export function SplitChatRoom({
       const res = await fetch(`/api/trips/${tripId}/split-chat`, {
         credentials: "include",
       });
-      const json = (await res.json()) as ListResponse;
+      const json = (await res.json()) as SplitChatListResponse;
       if (!res.ok || !json.ok || !json.threadId) {
         setError("대화방을 불러오지 못했어요.");
         return;
@@ -363,7 +110,7 @@ export function SplitChatRoom({
     const supabase = getBrowserSupabase();
     if (!supabase) return;
     const channel = subscribeSplitChatMessages(supabase, threadId, (msg) => {
-      setMessages((prev) => mergeMessages(prev, msg));
+      setMessages((prev) => mergeSplitChatMessages(prev, msg));
     });
     return () => {
       void supabase.removeChannel(channel);
@@ -391,16 +138,16 @@ export function SplitChatRoom({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const json = (await res.json()) as SendResponse;
+    const json = (await res.json()) as SplitChatSendResponse;
     if (!res.ok || !json.ok) {
       throw new Error("send-failed");
     }
     if (json.threadId) setThreadId(json.threadId);
     if (json.userMessage) {
-      setMessages((prev) => mergeMessages(prev, json.userMessage!));
+      setMessages((prev) => mergeSplitChatMessages(prev, json.userMessage!));
     }
     if (json.agentMessage) {
-      setMessages((prev) => mergeMessages(prev, json.agentMessage!));
+      setMessages((prev) => mergeSplitChatMessages(prev, json.agentMessage!));
     }
   }
 
@@ -475,14 +222,14 @@ export function SplitChatRoom({
           idempotencyKey: payload.idempotencyKey,
         }),
       });
-      const json = (await res.json()) as ConfirmResponse;
+      const json = (await res.json()) as SplitChatConfirmResponse;
       if (!res.ok || !json.ok) {
         setError(json.message ?? "반영하지 못했어요. 다시 시도해 주세요.");
         return;
       }
       setDismissed((prev) => new Set(prev).add(message.id));
       if (json.systemMessage) {
-        setMessages((prev) => mergeMessages(prev, json.systemMessage!));
+        setMessages((prev) => mergeSplitChatMessages(prev, json.systemMessage!));
       }
     } catch {
       setError("반영하지 못했어요. 다시 시도해 주세요.");
@@ -526,7 +273,7 @@ export function SplitChatRoom({
           aria-hidden
         >
           {stackMembers.length === 0 ? (
-            <MemberAvatar name="MetU" toneKey="metu" bot size="sm" />
+            <SplitChatMemberAvatar name="MetU" toneKey="metu" bot size="sm" />
           ) : (
             <>
               {stackMembers.map((m, i) => (
@@ -535,7 +282,7 @@ export function SplitChatRoom({
                   className="absolute top-0"
                   style={{ left: `${i * 14}px`, zIndex: i + 1 }}
                 >
-                  <MemberAvatar
+                  <SplitChatMemberAvatar
                     name={m.displayName}
                     toneKey={m.id}
                     size="sm"
@@ -549,7 +296,7 @@ export function SplitChatRoom({
                   zIndex: 8,
                 }}
               >
-                <MemberAvatar name="MetU" toneKey="metu" bot size="sm" />
+                <SplitChatMemberAvatar name="MetU" toneKey="metu" bot size="sm" />
               </div>
             </>
           )}
@@ -594,7 +341,7 @@ export function SplitChatRoom({
         }
       >
         {!loading ? (
-          <SystemBanner
+          <SplitChatSystemBanner
             body={
               members.length > 0
                 ? `${headerNames.slice(0, -1).join(", ") || "멤버"}와 MetU가 함께 있어요. 미리보기를 확인해야 반영돼요.`
@@ -611,7 +358,7 @@ export function SplitChatRoom({
 
         {!loading && messages.length === 0 ? (
           <div className="flex items-end gap-2">
-            <MemberAvatar name="MetU" toneKey="metu" bot size="sm" />
+            <SplitChatMemberAvatar name="MetU" toneKey="metu" bot size="sm" />
             <div className="min-w-0 max-w-[82%]">
               <p className="mb-0.5 px-1 text-mu-caption font-medium text-mu-fg-2">
                 MetU
@@ -636,14 +383,14 @@ export function SplitChatRoom({
           const name = resolveSenderName(m);
 
           if (isSystem) {
-            return <SystemBanner key={m.id} body={m.body} />;
+            return <SplitChatSystemBanner key={m.id} body={m.body} />;
           }
 
           if (mine) {
             return (
               <div key={m.id} className="flex flex-col items-end gap-1">
                 <div className="max-w-[82%] rounded-2xl rounded-tr-sm bg-mu-accent px-3.5 py-2.5 text-mu-body text-mu-on-accent shadow-sm">
-                  <MessageBubbleContent message={m} onAccent />
+                  <SplitChatMessageBubbleContent message={m} onAccent />
                 </div>
               </div>
             );
@@ -651,7 +398,7 @@ export function SplitChatRoom({
 
           return (
             <div key={m.id} className="flex items-end gap-2">
-              <MemberAvatar
+              <SplitChatMemberAvatar
                 name={name}
                 toneKey={m.senderUserId ?? m.id}
                 bot={isAgent}
@@ -662,9 +409,9 @@ export function SplitChatRoom({
                   {name}
                 </p>
                 <div className="rounded-2xl rounded-tl-sm bg-mu-card px-3.5 py-2.5 text-mu-body text-mu-fg shadow-sm">
-                  <MessageBubbleContent message={m} />
+                  <SplitChatMessageBubbleContent message={m} />
                   {showPreview && m.payload?.type === "split_preview" ? (
-                    <PreviewCard
+                    <SplitChatPreviewCard
                       message={m}
                       payload={m.payload}
                       isAnonymous={Boolean(isAnonymous)}
@@ -754,15 +501,4 @@ export function SplitChatRoom({
       {panel}
     </div>
   );
-}
-
-/** SettleStep 등에서 TripMember 그대로 넘길 때 */
-export function toSplitChatMembers(
-  members: readonly TripMember[]
-): SplitChatMember[] {
-  return members.map((m) => ({
-    id: m.id,
-    displayName: m.displayName,
-    userId: m.userId ?? null,
-  }));
 }
