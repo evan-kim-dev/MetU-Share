@@ -1,19 +1,13 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronRight } from "lucide-react";
-import { INBOX_NAME } from "@/lib/ledger/inbox-copy";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CardProfileSettings } from "@/components/ledger/CardProfileSettings";
 import { CashWithdrawSheet } from "@/components/ledger/CashWithdrawSheet";
-import { HostPayoutSettings } from "@/components/ledger/HostPayoutSettings";
-import { HostTransferSettings } from "@/components/ledger/HostTransferSettings";
-import { CashRateSettings } from "@/components/ledger/CashRateSettings";
 import { ExpenseConfirmSheet } from "@/components/ledger/ExpenseConfirmSheet";
-import { ExpenseChipSplit } from "@/components/ledger/ExpenseChipSplit";
 import { GuestExpenseSlot } from "@/components/ledger/GuestExpenseSlot";
 import { LedgerDashboard } from "@/components/ledger/LedgerDashboard";
+import { LedgerShellGuestRecord } from "@/components/ledger/LedgerShellGuestRecord";
+import { LedgerShellSettingsSheet } from "@/components/ledger/LedgerShellSettingsSheet";
 import { AdjustStep } from "@/components/ledger/journey/host/AdjustStep";
 import { ConnectStep } from "@/components/ledger/journey/host/ConnectStep";
 import { InviteStep } from "@/components/ledger/journey/host/InviteStep";
@@ -24,7 +18,6 @@ import {
   AddExpenseSheet,
   type AddExpenseTab,
 } from "@/components/ledger/journey/host/AddExpenseSheet";
-import { Sheet } from "@/components/ds/Sheet";
 import { useOptionalToast } from "@/components/ds/Toast";
 import {
   TripIntentSheet,
@@ -33,13 +26,11 @@ import {
 import { TripBotSheet } from "@/components/trips/TripBotSheet";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import type { ExpenseDraftInput } from "@/lib/ledger/draft";
-import { todayIsoDate } from "@/lib/shared/dates";
 import { fetchTripInboxCount } from "@/lib/ledger/inbox-count";
 import {
   fetchOpenBudgetSuggestions,
   type OpenBudgetSuggestion,
 } from "@/lib/ledger/open-suggestions";
-import type { HostStepKey } from "@/lib/ledger/journey-state";
 import {
   buildLocalInsight,
   computeLedgerStats,
@@ -55,48 +46,10 @@ import { formatKRW } from "@/lib/shared/format";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { useTrips } from "@/lib/trips/TripProvider";
 
-type Props = {
-  tripId: string;
-  /** UX-S1: 여정 단계. 기본 record (기존 한 페이지와 동일 블록). */
-  step?: HostStepKey;
-  onNavigate?: (step: HostStepKey) => void;
-};
+import type { LedgerCardProfile, LedgerShellProps } from "./ledger-shell-types";
+import { newManualDraft, readEntryIntent } from "./ledger-shell-utils";
 
-/** 가계부 탭에서 넘어오는 ?add= / ?settings= 값. 알 수 없는 값은 무시한다. */
-type EntryIntent =
-  | "manual"
-  | "receipt"
-  | "voice"
-  | "cash"
-  | "settings-fx";
-
-function readEntryIntent(params: URLSearchParams): EntryIntent | null {
-  const add = params.get("add");
-  if (
-    add === "manual" ||
-    add === "receipt" ||
-    add === "voice" ||
-    add === "cash"
-  ) {
-    return add;
-  }
-  if (params.get("settings") === "fx") return "settings-fx";
-  return null;
-}
-
-function newManualDraft(): ExpenseDraftInput {
-  return {
-    source: "manual",
-    origin: "manual",
-    merchant: "",
-    amount: null,
-    currency: "KRW",
-    spentOn: todayIsoDate(),
-    category: "기타",
-    paymentMethod: "card",
-    kind: "approval",
-  };
-}
+type Props = LedgerShellProps;
 
 export function LedgerShell({
   tripId,
@@ -117,15 +70,7 @@ export function LedgerShell({
   const [addFocusFirst, setAddFocusFirst] = useState(false);
   const [members, setMembers] = useState<TripMember[]>([]);
   const [expenses, setExpenses] = useState<LedgerExpenseRow[]>([]);
-  const [profiles, setProfiles] = useState<
-    Array<{
-      id: string;
-      label: string;
-      kind: string;
-      fee_rate: number | null;
-      fee_flat_krw: number;
-    }>
-  >([]);
+  const [profiles, setProfiles] = useState<LedgerCardProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [queue, setQueue] = useState<ExpenseDraftInput[]>([]);
@@ -208,7 +153,7 @@ export function LedgerShell({
     ]);
     setMembers(m);
     setExpenses(e);
-    setProfiles(p as typeof profiles);
+    setProfiles(p as LedgerCardProfile[]);
     setInboxCount(pendingCount);
     setOpenSuggestions(suggestions);
     setLoading(false);
@@ -315,32 +260,6 @@ export function LedgerShell({
     />
   );
 
-  const expenseList = (
-    <section className="overflow-hidden rounded-mu-xl border border-mu-line bg-mu-card">
-      <h2 className="border-b border-mu-line px-4 py-3 text-mu-heading text-mu-fg">
-        지출 목록
-      </h2>
-      <ul className="flex flex-col gap-2 p-4">
-        {expenses.length === 0 ? (
-          <li className="text-mu-body text-mu-fg-3">아직 지출이 없어요.</li>
-        ) : (
-          expenses.map((e) => (
-            <ExpenseChipSplit
-              key={e.id}
-              expense={e}
-              members={members}
-              meId={me?.id}
-              isAnonymous={isAnonymous}
-              isOwner={Boolean(me?.isOwner)}
-              settleHref={`/trips/${tripId}/ledger/settle`}
-              onChanged={() => void reload()}
-            />
-          ))
-        )}
-      </ul>
-    </section>
-  );
-
   return (
     <div
       className={
@@ -400,24 +319,16 @@ export function LedgerShell({
               ) : null}
 
               {guestReadonly ? (
-                <>
-                  {dashboard}
-                  <div className="grid grid-cols-2 gap-2">
-                    <Link
-                      href={`/trips/${tripId}/ledger/settle`}
-                      className="mu-focus flex min-h-tap items-center justify-center rounded-mu-lg border border-mu-line bg-mu-card text-mu-label font-bold text-mu-accent"
-                    >
-                      정산
-                    </Link>
-                    <Link
-                      href={`/trips/${tripId}/ledger/report`}
-                      className="mu-focus flex min-h-tap items-center justify-center rounded-mu-lg border border-mu-line bg-mu-card text-mu-label font-bold text-mu-accent"
-                    >
-                      리포트
-                    </Link>
-                  </div>
-                  {expenseList}
-                </>
+                <LedgerShellGuestRecord
+                  tripId={tripId}
+                  expenses={expenses}
+                  members={members}
+                  meId={me?.id}
+                  isAnonymous={isAnonymous}
+                  isOwner={Boolean(me?.isOwner)}
+                  dashboard={dashboard}
+                  onExpenseChanged={() => void reload()}
+                />
               ) : (
                 <RecordStep
                   tripId={tripId}
@@ -479,99 +390,20 @@ export function LedgerShell({
       )}
 
       {!guestReadonly ? (
-        <Sheet
+        <LedgerShellSettingsSheet
           open={settingsOpen}
           onClose={() => setSettingsOpen(false)}
-          title="설정"
-        >
-          <div ref={settingsRef} className="flex flex-col gap-6 pb-2">
-            {user ? (
-              <section className="flex flex-col gap-3" aria-label="정산 설정">
-                <h3 className="text-mu-caption font-bold tracking-wide text-mu-fg-3">
-                  정산
-                </h3>
-                <HostPayoutSettings userId={user.id} />
-                {me?.isOwner ? (
-                  <HostTransferSettings
-                    tripId={tripId}
-                    meId={me.id}
-                    members={members}
-                    onTransferred={() => {
-                      void reload();
-                    }}
-                  />
-                ) : null}
-              </section>
-            ) : null}
-
-            {user || me ? (
-              <section className="flex flex-col gap-3" aria-label="카드·환율">
-                <h3 className="text-mu-caption font-bold tracking-wide text-mu-fg-3">
-                  카드 · 환율
-                </h3>
-                {user ? (
-                  <CardProfileSettings
-                    userId={user.id}
-                    profiles={profiles}
-                    onChange={setProfiles}
-                  />
-                ) : null}
-                {me ? (
-                  <CashRateSettings tripId={tripId} memberId={me.id} />
-                ) : null}
-              </section>
-            ) : null}
-
-            <section className="flex flex-col gap-2" aria-label="바로가기">
-              <h3 className="text-mu-caption font-bold tracking-wide text-mu-fg-3">
-                바로가기
-              </h3>
-              <ul className="overflow-hidden rounded-mu-lg border border-mu-line bg-mu-card">
-                {(
-                  [
-                    {
-                      href: `/trips/${tripId}/ledger/inbox`,
-                      label: INBOX_NAME,
-                    },
-                    {
-                      href: `/trips/${tripId}/ledger/report`,
-                      label: "리포트",
-                    },
-                    {
-                      href: `/trips/${tripId}/ledger/wallet`,
-                      label: "면세 지갑",
-                    },
-                    {
-                      href: `/trips/${tripId}/ledger/recap`,
-                      label: "리캡",
-                    },
-                  ] as const
-                ).map((item, index, list) => (
-                  <li
-                    key={item.href}
-                    className={
-                      index < list.length - 1
-                        ? "border-b border-mu-line"
-                        : undefined
-                    }
-                  >
-                    <Link
-                      href={item.href}
-                      className="mu-focus flex min-h-11 items-center justify-between gap-3 px-3.5 text-sm font-semibold text-mu-fg"
-                    >
-                      {item.label}
-                      <ChevronRight
-                        className="h-4 w-4 shrink-0 text-mu-fg-3"
-                        strokeWidth={2}
-                        aria-hidden
-                      />
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          </div>
-        </Sheet>
+          settingsRef={settingsRef}
+          tripId={tripId}
+          userId={user?.id}
+          me={me}
+          members={members}
+          profiles={profiles}
+          onProfilesChange={setProfiles}
+          onTransferred={() => {
+            void reload();
+          }}
+        />
       ) : null}
 
       {!guestReadonly ? (

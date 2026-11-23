@@ -1,19 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CalendarDays, ImagePlus, X } from "lucide-react";
 import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { AirportSearchField } from "@/components/onboarding/AirportSearchField";
-import {
-  CATEGORY_LABELS,
-  type CommunityPost,
-  type WritablePostCategory,
-} from "@/lib/mock/community";
+import type { WritablePostCategory } from "@/lib/mock/community";
 import {
   MAX_POST_IMAGES,
   uploadCommunityPostImage,
 } from "@/lib/community/post-images";
-import type { CreatePostInput } from "@/lib/community/types";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { formatPlaceDestination } from "@/lib/places/autocomplete";
@@ -21,61 +15,24 @@ import { useTrips } from "@/lib/trips/TripProvider";
 import type { Trip } from "@/lib/trips/types";
 import { parseTripDateRange } from "@/lib/weather/parse-trip-dates";
 import { todayIsoDate } from "@/lib/shared/dates";
-import { DateField } from "@/components/ui/DateField";
+import { WritePostCategoryChips } from "@/components/community/WritePostCategoryChips";
+import { WritePostImageSection } from "@/components/community/WritePostImageSection";
+import { WritePostPartyFields } from "@/components/community/WritePostPartyFields";
+import { WritePostSheetHeader } from "@/components/community/WritePostSheetHeader";
+import type {
+  DraftImage,
+  WritePostSheetProps,
+} from "@/components/community/write-post-sheet.types";
+import {
+  buildScheduleShareText,
+  defaultDate,
+  digitsOnly,
+} from "@/components/community/write-post-sheet.utils";
 
-const WRITE_CATEGORIES: WritablePostCategory[] = [
-  "party",
-  "question",
-  "review",
-  "tip",
-  "chat",
-];
-
-interface DraftImage {
-  id: string;
-  previewUrl: string;
-  uploadedUrl?: string;
-  file?: File;
-}
-
-interface WritePostSheetProps {
-  open: boolean;
-  onClose: () => void;
-  onSubmit: (input: CreatePostInput) => void | Promise<void>;
-  initialCategory?: WritablePostCategory;
-  editingPost?: CommunityPost | null;
-}
-
-function defaultDate(offsetDays: number): string {
-  const date = new Date();
-  date.setDate(date.getDate() + offsetDays);
-  return date.toISOString().slice(0, 10);
-}
-
-function digitsOnly(value: string): string {
-  return value.replace(/\D/g, "");
-}
-
-function buildScheduleShareText(trip: Trip): string {
-  if (!trip.dailySchedule?.length) {
-    return `${trip.destination} 일정을 함께해요. (${trip.dateRange})`;
-  }
-
-  const days = trip.dailySchedule
-    .map((day) => {
-      const items = day.items
-        .map((item) =>
-          item.detail
-            ? `· ${item.time} ${item.title}\n  ${item.detail}`
-            : `· ${item.time} ${item.title}`
-        )
-        .join("\n");
-      return `${day.label}\n${items}`;
-    })
-    .join("\n\n");
-
-  return `${trip.destination} 일정을 공유해요.\n\n${days}`;
-}
+export type {
+  DraftImage,
+  WritePostSheetProps,
+} from "@/components/community/write-post-sheet.types";
 
 export function WritePostSheet({
   open,
@@ -312,43 +269,13 @@ export function WritePostSheet({
         onClick={onClose}
       />
       <div className="relative z-10 max-h-[88dvh] w-full max-w-mobile overflow-y-auto rounded-t-[28px] bg-surface-white/95 px-5 pb-[max(2rem,env(safe-area-inset-bottom))] pt-4 shadow-lg backdrop-blur-xl ring-1 ring-black/5">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-[17px] font-semibold tracking-tight text-ink-heading">
-            {isEditing ? "게시글 수정" : "글쓰기"}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-soft text-ink-body transition-transform active:scale-95"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+        <WritePostSheetHeader isEditing={isEditing} onClose={onClose} />
 
-        <div className="mb-4 flex gap-2 overflow-x-auto no-scrollbar">
-          {WRITE_CATEGORIES.map((item) => (
-            <button
-              key={item}
-              type="button"
-              disabled={isEditing}
-              onClick={() => setCategory(item)}
-              className={[
-                "shrink-0 rounded-full px-3.5 py-2 text-xs font-semibold transition-all active:scale-95",
-                category === item
-                  ? "bg-brand text-surface-white"
-                  : "bg-surface-soft text-ink-caption",
-              ].join(" ")}
-            >
-              {CATEGORY_LABELS[item]}
-            </button>
-          ))}
-        </div>
-
-        {isParty ? (
-          <div className="mb-4 rounded-xl border border-brand/15 bg-surface-soft px-3 py-2.5 text-xs leading-5 text-brand-strong">
-            같이 여행할 일정·인원·예산을 적어 동행을 구해보세요. 내 여행 일정도 공유할 수 있어요.
-          </div>
-        ) : null}
+        <WritePostCategoryChips
+          category={category}
+          isEditing={isEditing}
+          onCategoryChange={setCategory}
+        />
 
         <div className="flex flex-col gap-3">
           <label className="flex flex-col gap-1">
@@ -372,106 +299,22 @@ export function WritePostSheet({
           />
 
           {isParty ? (
-            <>
-              <div className="grid grid-cols-2 gap-2">
-                <label className="flex flex-col gap-1">
-                  <span className="text-xs font-semibold text-ink-caption">출발일</span>
-                  <DateField
-                    aria-label="출발일"
-                    value={startDate}
-                    min={todayIso}
-                    onChange={(next) => {
-                      setStartDate(next);
-                      if (endDate && next && endDate < next) setEndDate("");
-                    }}
-                    className="h-11 rounded-lg border border-line-soft px-3 text-sm outline-none focus:border-brand"
-                  />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-xs font-semibold text-ink-caption">귀국일</span>
-                  <DateField
-                    aria-label="귀국일"
-                    value={endDate}
-                    min={startDate || todayIso}
-                    onChange={setEndDate}
-                    className="h-11 rounded-lg border border-line-soft px-3 text-sm outline-none focus:border-brand"
-                  />
-                </label>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <label className="flex flex-col gap-1">
-                  <span className="text-xs font-semibold text-ink-caption">모집 인원</span>
-                  <input
-                    type="number"
-                    min={2}
-                    max={20}
-                    value={needed}
-                    onChange={(e) =>
-                      setNeeded(Math.max(2, Math.min(20, Number(e.target.value) || 2)))
-                    }
-                    className="h-11 rounded-lg border border-line-soft px-3 text-sm outline-none focus:border-brand"
-                  />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-xs font-semibold text-ink-caption">
-                    1인 예산 (만원, 선택)
-                  </span>
-                  <input
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    value={budgetPerPerson}
-                    onChange={(e) => setBudgetPerPerson(digitsOnly(e.target.value))}
-                    placeholder="예: 80"
-                    className="h-11 rounded-lg border border-line-soft px-3 text-sm outline-none focus:border-brand"
-                  />
-                </label>
-              </div>
-
-              <div className="rounded-xl border border-line-soft bg-surface-soft/60 p-3">
-                <button
-                  type="button"
-                  onClick={() => setTripPickerOpen((prev) => !prev)}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand"
-                >
-                  <CalendarDays className="h-3.5 w-3.5" />
-                  일정 공유
-                  {sharedTripId ? (
-                    <span className="font-medium text-ink-caption">· 선택됨</span>
-                  ) : null}
-                </button>
-
-                {tripPickerOpen ? (
-                  <div className="mt-2 flex flex-col gap-1.5">
-                    {shareableTrips.length === 0 ? (
-                      <p className="text-xs leading-5 text-ink-caption">
-                        공유할 여행이 없어요. 먼저 여행을 만들어 주세요.
-                      </p>
-                    ) : (
-                      shareableTrips.map((trip) => (
-                        <button
-                          key={trip.id}
-                          type="button"
-                          onClick={() => applySharedTrip(trip)}
-                          className={[
-                            "rounded-lg border px-3 py-2.5 text-left transition-colors active:scale-[0.99]",
-                            sharedTripId === trip.id
-                              ? "border-brand bg-brand/5"
-                              : "border-line-soft bg-surface-white",
-                          ].join(" ")}
-                        >
-                          <p className="text-sm font-semibold text-ink-heading">
-                            {trip.destination}
-                          </p>
-                          <p className="mt-0.5 text-xs text-ink-caption">
-                            {trip.dateRange} · {trip.people}명
-                          </p>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                ) : null}
-              </div>
-            </>
+            <WritePostPartyFields
+              todayIso={todayIso}
+              startDate={startDate}
+              endDate={endDate}
+              needed={needed}
+              budgetPerPerson={budgetPerPerson}
+              tripPickerOpen={tripPickerOpen}
+              sharedTripId={sharedTripId}
+              shareableTrips={shareableTrips}
+              onStartDateChange={setStartDate}
+              onEndDateChange={setEndDate}
+              onNeededChange={setNeeded}
+              onBudgetPerPersonChange={setBudgetPerPerson}
+              onToggleTripPicker={() => setTripPickerOpen((prev) => !prev)}
+              onApplySharedTrip={applySharedTrip}
+            />
           ) : null}
 
           <label className="flex flex-col gap-1">
@@ -489,64 +332,13 @@ export function WritePostSheet({
             />
           </label>
 
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold text-ink-caption">사진</span>
-              <span className="text-xs text-ink-caption">
-                {images.length}/{MAX_POST_IMAGES}
-              </span>
-            </div>
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
-              multiple
-              className="hidden"
-              disabled={uploading || images.length >= MAX_POST_IMAGES}
-              onChange={(e) => {
-                handlePickImages(e.target.files);
-                e.target.value = "";
-              }}
-            />
-
-            <div className="flex gap-2 overflow-x-auto no-scrollbar">
-              {images.length < MAX_POST_IMAGES ? (
-                <button
-                  type="button"
-                  disabled={uploading}
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex h-20 w-20 shrink-0 flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-line-muted bg-surface-soft text-ink-caption transition-colors hover:border-brand/40 hover:text-brand disabled:opacity-50"
-                >
-                  <ImagePlus className="h-5 w-5" />
-                  <span className="text-2xs font-semibold">추가</span>
-                </button>
-              ) : null}
-
-              {images.map((image) => (
-                <div
-                  key={image.id}
-                  className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-line-soft"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={image.previewUrl}
-                    alt="첨부 사진 미리보기"
-                    className="h-full w-full object-cover"
-                  />
-                  <button
-                    type="button"
-                    aria-label="사진 삭제"
-                    disabled={uploading}
-                    onClick={() => removeImage(image.id)}
-                    className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/55 text-surface-white"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
+          <WritePostImageSection
+            fileInputRef={fileInputRef}
+            images={images}
+            uploading={uploading}
+            onPickImages={handlePickImages}
+            onRemoveImage={removeImage}
+          />
         </div>
 
         {error ? (
