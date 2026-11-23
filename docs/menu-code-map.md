@@ -45,6 +45,21 @@
 - 상세: `PostDetailContent.tsx` + `PostDetail*` 섹션
 - DM: `DmChatPageContent.tsx` + `DmChat*` / `useDmChatThread.ts`
 
+## 가계부·여정 (`components/ledger/`)
+
+- `LedgerShell.tsx` + `LedgerShell*` / `ledger-shell-*`
+- `PayStep` / `SettleStep` / `RecordStep` → 각 `*Header`·`*Summary`·섹션 파일
+- `ExpenseConfirmSheet` / `SplitChatRoom` → 형제 타입·섹션
+
+## 기타
+
+- 온보딩 연결: `ConnectFlow.tsx` + `useConnectFlow.ts` + `ConnectFlow*`
+- 로그인 이메일: `EmailAuthForm.tsx` + `useEmailAuthForm.ts` + `ConfirmEmailView` 등
+- 여행 상세: `TripDetailContent.tsx` + `TripDetail*` / schedule 섹션
+- 추천 결과: `RecommendResult.tsx` + `RecommendResult*` / `useRecommendResultPlan.ts`
+- 카드 실습: `CardBenefitLab.tsx` + `CardBenefitLab*`
+- DM: `DmChatPageContent.tsx` + `DmChat*` / `useDmChatThread.ts`
+
 ## 가계부·여행 (`components/ledger/`, `components/trips/`)
 
 - `LedgerShell*` / `SplitChatRoom*` / `ExpenseConfirm*` / `PayStep*` / `SettleStep*` / `RecordStep*`
