@@ -6,17 +6,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BottomCTA } from "@/components/ds/BottomCTA";
 import { Button } from "@/components/ds/Button";
 import { EmptyState } from "@/components/ds/EmptyState";
-import { ProgressRing } from "@/components/ds/ProgressRing";
 import { Sheet } from "@/components/ds/Sheet";
 import { SettlementHistory } from "@/components/ledger/SettlementHistory";
-import {
-  useSettleReference,
-  type SettleReference,
-} from "@/components/ledger/useSettleReference";
+import { useSettleReference } from "@/components/ledger/useSettleReference";
 import { useClipboardCopy } from "@/components/onboarding/connect/useClipboardCopy";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import {
-  PAY_APPS,
   PAY_DEEPLINK_NOTICE,
   PAY_OPEN_FAILED_MESSAGE,
   launchPayApp,
@@ -46,20 +41,13 @@ import type { TripMember } from "@/lib/ledger/types";
 import { formatKRW } from "@/lib/shared/format";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 
-type Props = {
-  tripId: string;
-  /** page = settle URL 아래 조합. journey = TripJourney 송금 칸. */
-  mode?: "page" | "journey";
-  /** 호스트 CTA(공유/리캡) vs 게스트 CTA(내 송금·완료) */
-  audience?: "host" | "guest";
-  /** 정산표가 없을 때 정산 단계로 */
-  onSettle?: () => void;
-  /** 호스트: 모두 송금 완료 시 리캡. 게스트: 내 송금 끝나면 완료 단계 */
-  onRecap?: () => void;
-  onDone?: () => void;
-  /** settle URL 에서 SettleStep 과 공유할 참고 환율 상태 */
-  reference?: SettleReference;
-};
+import type { PayStepProps } from "./pay-step-types";
+import { PayStepProgressCard } from "./PayStepProgressCard";
+import { PayStepShareSection } from "./PayStepShareSection";
+import { PayStepStatusBanners } from "./PayStepStatusBanners";
+import { PayStepTransferList } from "./PayStepTransferList";
+
+type Props = PayStepProps;
 
 /**
  * 호스트 ⑥ 송금 단계. ProgressRing · 송금 목록(앱 열기·완료) · 공유 · 이전 정산(시트).
@@ -324,6 +312,8 @@ export function PayStep({
     );
   }
 
+  const myOutgoingPaid = myOutgoing.filter((t) => t.status === "paid").length;
+
   return (
     <div
       className={
@@ -343,136 +333,36 @@ export function PayStep({
         </div>
       ) : null}
 
-      {loadError ? (
-        <p
-          role="alert"
-          className="rounded-mu-lg border border-mu-warn/30 bg-mu-warn-soft px-4 py-3 text-mu-caption font-semibold text-mu-warn"
-        >
-          정산 정보를 모두 불러오지 못했어요. 새로고침해 주세요.
-        </p>
-      ) : null}
-
-      {stale ? (
-        <div
-          role="status"
-          className="rounded-mu-lg border border-mu-warn/30 bg-mu-warn-soft px-4 py-3 text-mu-caption font-semibold text-mu-warn"
-        >
-          <p>송금표가 최신이 아니에요. 정산 단계에서 다시 계산해 주세요.</p>
-          {onSettle ? (
-            <button
-              type="button"
-              className="mt-2 min-h-tap text-mu-caption font-bold text-mu-accent"
-              onClick={onSettle}
-            >
-              정산 단계로
-            </button>
-          ) : (
-            <Link
-              href={settleHref}
-              className="mt-2 inline-flex min-h-tap items-center text-mu-caption font-bold text-mu-accent"
-            >
-              정산 단계로
-            </Link>
-          )}
-        </div>
-      ) : null}
-
-      {settlement?.origin === "auto" && !completed ? (
-        <div className="rounded-mu-lg border border-mu-line bg-mu-sunken px-4 py-3 text-mu-caption font-semibold text-mu-fg-2">
-          자동으로 만든 정산 제안이에요. 금액을 확인하고 직접 송금해 주세요.
-        </div>
-      ) : null}
-
-      {completed ? (
-        <p
-          role="status"
-          className="rounded-mu-lg border border-mu-ok/20 bg-mu-ok-soft px-4 py-3 text-mu-caption font-bold text-mu-ok"
-        >
-          정산 완료
-        </p>
-      ) : null}
+      <PayStepStatusBanners
+        loadError={loadError}
+        stale={stale}
+        completed={completed}
+        autoOriginPending={
+          Boolean(settlement?.origin === "auto" && !completed)
+        }
+        settleHref={settleHref}
+        onSettle={onSettle}
+      />
 
       {settlement && visibleTransfers.length > 0 ? (
-        <div className="flex items-center gap-4 rounded-mu-xl border border-mu-line bg-mu-card p-4">
-          <ProgressRing
-            value={
-              audience === "guest"
-                ? myOutgoing.filter((t) => t.status === "paid").length
-                : paidCount
-            }
-            max={
-              audience === "guest"
-                ? Math.max(myOutgoing.length, 1)
-                : transfers.length
-            }
-            size={72}
-            label={
-              audience === "guest"
-                ? `내 송금 ${myOutgoing.filter((t) => t.status === "paid").length}/${myOutgoing.length || 0} 완료`
-                : `${paidCount}/${transfers.length} 송금 완료`
-            }
-          />
-          <div className="min-w-0">
-            <p className="text-mu-caption text-mu-fg-3">진행</p>
-            <p className="mt-0.5 text-mu-heading text-mu-fg">
-              {audience === "guest"
-                ? `내 송금 ${myOutgoing.filter((t) => t.status === "paid").length}/${myOutgoing.length || 0} 완료`
-                : `${paidCount}/${transfers.length} 완료`}
-            </p>
-          </div>
-        </div>
+        <PayStepProgressCard
+          audience={audience}
+          paidCount={paidCount}
+          transferCount={transfers.length}
+          myOutgoingPaid={myOutgoingPaid}
+          myOutgoingTotal={myOutgoing.length}
+        />
       ) : null}
 
-      <ul className="flex flex-col gap-2">
-        {visibleTransfers.map((t) => {
-          const mineOut = Boolean(me && t.from === me.id);
-          const canMark = isOwner || mineOut;
-          return (
-            <li
-              key={t.id}
-              className="flex flex-col gap-3 rounded-mu-xl border border-mu-line bg-mu-card p-4 text-mu-body"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-mu-body font-semibold text-mu-fg">
-                    {nameOf(t.from)} → {nameOf(t.to)}
-                  </p>
-                  <p className="mu-num mt-1 text-mu-amount font-extrabold text-mu-fg">
-                    {formatKRW(t.krw)}
-                  </p>
-                </div>
-                {t.status === "paid" ? (
-                  <span className="rounded-full bg-mu-ok-soft px-2.5 py-1 text-mu-caption font-bold text-mu-ok">
-                    완료
-                  </span>
-                ) : canMark ? (
-                  <button
-                    type="button"
-                    className="mu-focus min-h-tap shrink-0 rounded-mu-md px-2 text-mu-caption font-bold text-mu-accent"
-                    onClick={() => void markPaid(t.id)}
-                  >
-                    송금 완료
-                  </button>
-                ) : null}
-              </div>
-              {t.status !== "paid" && mineOut && !stale ? (
-                <div className="flex flex-wrap gap-2">
-                  {PAY_APPS.map((app) => (
-                    <button
-                      key={app.id}
-                      type="button"
-                      className="mu-focus min-h-tap rounded-mu-md border border-mu-accent bg-mu-accent-soft px-3 text-mu-caption font-bold text-mu-accent"
-                      onClick={() => openPayApp(app, t.krw)}
-                    >
-                      {app.label} 열기
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </li>
-          );
-        })}
-      </ul>
+      <PayStepTransferList
+        transfers={visibleTransfers}
+        nameOf={nameOf}
+        meId={me?.id}
+        isOwner={isOwner}
+        stale={stale}
+        onMarkPaid={(id) => void markPaid(id)}
+        onOpenPayApp={openPayApp}
+      />
 
       {payNote ? (
         <div
@@ -488,49 +378,18 @@ export function PayStep({
       ) : null}
 
       {audience === "host" && settlement && transfers.length > 0 ? (
-        <section
-          aria-label="정산 공유"
-          className="flex flex-col gap-3 rounded-mu-xl border border-mu-line bg-mu-card p-4 text-mu-caption"
-        >
-          <p className="text-mu-heading text-mu-fg">동행에게 공유하기</p>
-          {shareBlockedMessage ? (
-            <p className="font-semibold text-mu-warn">{shareBlockedMessage}</p>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={!shareText}
-              className="mu-focus min-h-tap rounded-mu-md bg-mu-accent px-3 font-bold text-mu-on-accent disabled:opacity-40"
-              onClick={() => void copyShareText()}
-            >
-              {textCopy.label ?? "문구 복사"}
-            </button>
-            {canNativeShare ? (
-              <button
-                type="button"
-                disabled={!shareText}
-                className="mu-focus min-h-tap rounded-mu-md border border-mu-accent px-3 font-bold text-mu-accent disabled:opacity-40"
-                onClick={() => void nativeShare()}
-              >
-                공유하기
-              </button>
-            ) : null}
-            {shareUrl ? (
-              <button
-                type="button"
-                className="mu-focus min-h-tap rounded-mu-md border border-mu-accent px-3 font-bold text-mu-accent"
-                onClick={() => void copyShareLink()}
-              >
-                {linkCopy.label ?? "링크 복사"}
-              </button>
-            ) : null}
-          </div>
-          {sharePath ? (
-            <Link className="break-all font-semibold text-mu-accent" href={sharePath}>
-              {sharePath}
-            </Link>
-          ) : null}
-        </section>
+        <PayStepShareSection
+          shareBlockedMessage={shareBlockedMessage}
+          shareText={shareText}
+          sharePath={sharePath}
+          shareUrl={shareUrl}
+          canNativeShare={canNativeShare}
+          textCopyLabel={textCopy.label}
+          linkCopyLabel={linkCopy.label}
+          onCopyShareText={() => void copyShareText()}
+          onCopyShareLink={() => void copyShareLink()}
+          onNativeShare={() => void nativeShare()}
+        />
       ) : null}
 
       {mode === "journey" && audience === "host" ? (

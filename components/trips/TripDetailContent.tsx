@@ -1,26 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import {
   buildScheduleRebalancePreview,
   type ScheduleRebalancePreview,
 } from "@/lib/budget/trip-rebalance-preview";
-import { scrollIntoScrollParent } from "@/lib/dom/scroll-into-parent";
 import { useLedger } from "@/lib/ledger/useLedger";
 import { formatKRW } from "@/lib/shared/format";
 import { useTrips } from "@/lib/trips/TripProvider";
 import { useRouter } from "next/navigation";
-import { Check, Images, MapPin, Plus, Share2, Trash2, Users } from "lucide-react";
+import { MapPin, Trash2, Users } from "lucide-react";
 import { useOptionalToast } from "@/components/ds/Toast";
 import { MobileShell } from "@/components/layout/MobileShell";
-import { PrimaryButton } from "@/components/ui/PrimaryButton";
-import { TripBotSheet } from "@/components/trips/TripBotSheet";
 import { TripInfoCard } from "@/components/trips/TripDetailParts";
-import {
-  TripIntentSheet,
-  type TripIntent,
-} from "@/components/trips/TripIntentSheet";
+import { type TripIntent } from "@/components/trips/TripIntentSheet";
 import { TripDetailBudgetSection } from "@/components/trips/detail/TripDetailBudgetSection";
 import { TripDetailHero } from "@/components/trips/detail/TripDetailHero";
 import { TripDetailMemoSection } from "@/components/trips/detail/TripDetailMemoSection";
@@ -30,33 +24,20 @@ import { ScheduleRebalancePreviewSheet } from "@/components/trips/detail/Schedul
 import { TripSummaryPanel } from "@/components/trips/detail/TripSummaryPanel";
 import { useTripDetailEditor } from "@/components/trips/useTripDetailEditor";
 import type { MapPoint } from "@/lib/map/trip-points";
-
-interface TripDetailContentProps {
-  tripId: string;
-}
-
-/** 일정·요약은 인페이지. 가계부·정산은 TripJourney(/ledger) 단일 쉘. */
-type DetailTab = "summary" | "schedule";
-
-type NavTab = DetailTab | "ledger" | "settle" | "photos";
-
-function nextScheduleLineFromTrip(trip: {
-  dailySchedule?: Array<{
-    dayLabel?: string;
-    items?: Array<{ title?: string; placeName?: string }>;
-  }>;
-}): string | null {
-  const days = trip.dailySchedule ?? [];
-  for (const day of days) {
-    const item = day.items?.[0];
-    if (!item) continue;
-    const place = item.placeName?.trim() || item.title?.trim();
-    if (!place) continue;
-    const dayLabel = day.dayLabel?.trim();
-    return dayLabel ? `${dayLabel} · ${place}` : place;
-  }
-  return null;
-}
+import { nextScheduleLineFromTrip } from "@/components/trips/trip-detail-content.helpers";
+import type {
+  DetailTab,
+  TripDetailContentProps,
+} from "@/components/trips/trip-detail-content.types";
+import {
+  TripDetailLoadingState,
+  TripDetailNotFoundState,
+} from "@/components/trips/TripDetailContentStates";
+import { TripDetailIntentFab } from "@/components/trips/TripDetailIntentFab";
+import { TripDetailNavTabs } from "@/components/trips/TripDetailNavTabs";
+import { TripDetailShareButton } from "@/components/trips/TripDetailShareButton";
+import { TripDetailStyleSection } from "@/components/trips/TripDetailStyleSection";
+import { useTripDetailScheduleScroll } from "@/components/trips/useTripDetailScheduleScroll";
 
 export function TripDetailContent({ tripId }: TripDetailContentProps) {
   const router = useRouter();
@@ -163,28 +144,7 @@ export function TripDetailContent({ tripId }: TripDetailContentProps) {
     setScheduleScrollNonce((n) => n + 1);
   }, []);
 
-  useEffect(() => {
-    if (detailTab !== "schedule" || scheduleScrollNonce === 0) return;
-    let cancelled = false;
-    let tries = 0;
-    const tick = () => {
-      if (cancelled) return;
-      const el = scheduleSectionRef.current;
-      // 시트 닫힘·일정 마운트 전에 스크롤하면 빈 자리/예산으로 돌아가요
-      if (!el || el.getBoundingClientRect().height < 48) {
-        tries += 1;
-        if (tries < 30) window.setTimeout(tick, 40);
-        return;
-      }
-      scrollIntoScrollParent(el, { offsetPx: 12, behavior: "smooth" });
-    };
-    // Sheet 포커스 복귀 다음에 실행
-    const t = window.setTimeout(tick, 120);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(t);
-    };
-  }, [detailTab, scheduleScrollNonce]);
+  useTripDetailScheduleScroll(detailTab, scheduleScrollNonce, scheduleSectionRef);
 
   const handleReviewSchedule = useCallback(() => {
     if (!trip) {
@@ -235,55 +195,12 @@ export function TripDetailContent({ tripId }: TripDetailContentProps) {
     setRebalancePreview(null);
   }, []);
 
-  const shareButton = (
-    <button
-      type="button"
-      aria-label={shareCopied ? "링크 복사됨" : "여행 공유"}
-      onClick={() => {
-        void handleShareTrip();
-      }}
-      className="flex h-9 w-9 items-center justify-center rounded-full text-ink-heading transition-colors active:bg-surface-soft"
-    >
-      {shareCopied ? (
-        <Check className="h-5 w-5 text-brand" strokeWidth={2.2} />
-      ) : (
-        <Share2 className="h-5 w-5" strokeWidth={2} />
-      )}
-    </button>
-  );
-
   if (!isReady) {
-    return (
-      <MobileShell title="여행 상세" showBack backHref="/trips">
-        <div
-          className="flex flex-col gap-4 px-5 pt-5"
-          aria-busy="true"
-          aria-label="불러오는 중"
-        >
-          <div className="h-52 animate-pulse rounded-xl2 bg-surface-soft" />
-          <div className="grid grid-cols-2 gap-3">
-            <div className="h-20 animate-pulse rounded-2xl bg-surface-soft" />
-            <div className="h-20 animate-pulse rounded-2xl bg-surface-soft" />
-          </div>
-          <div className="h-36 animate-pulse rounded-2xl bg-surface-soft" />
-        </div>
-      </MobileShell>
-    );
+    return <TripDetailLoadingState />;
   }
 
   if (!trip) {
-    return (
-      <MobileShell title="여행 상세" showBack backHref="/trips">
-        <div className="flex flex-col items-center gap-3 px-5 py-20 text-center">
-          <p className="text-base font-bold text-ink-heading">
-            여행을 찾을 수 없어요
-          </p>
-          <PrimaryButton onClick={() => router.push("/trips")}>
-            내 여행 목록으로
-          </PrimaryButton>
-        </div>
-      </MobileShell>
-    );
+    return <TripDetailNotFoundState />;
   }
 
   return (
@@ -291,7 +208,16 @@ export function TripDetailContent({ tripId }: TripDetailContentProps) {
       title="여행 상세"
       showBack
       backHref="/trips"
-      rightSlot={canEdit ? shareButton : undefined}
+      rightSlot={
+        canEdit ? (
+          <TripDetailShareButton
+            shareCopied={shareCopied}
+            onShare={() => {
+              void handleShareTrip();
+            }}
+          />
+        ) : undefined
+      }
     >
       {shareError ? (
         <p className="px-5 pt-3 text-xs text-red-500">{shareError}</p>
@@ -326,63 +252,12 @@ export function TripDetailContent({ tripId }: TripDetailContentProps) {
           onReviewSchedule={handleReviewSchedule}
         />
 
-        <div
-          className="flex rounded-full bg-surface-soft p-1"
-          role="tablist"
-          aria-label="여행 상세 탭"
-        >
-          {(
-            [
-              ["summary", "요약"],
-              ["schedule", "일정"],
-              ["photos", "사진"],
-              ["ledger", "가계부"],
-              ["settle", "정산"],
-            ] as const satisfies ReadonlyArray<readonly [NavTab, string]>
-          ).map(([key, label]) => {
-            const selected =
-              key === "ledger" || key === "settle" || key === "photos"
-                ? false
-                : detailTab === key;
-            return (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={selected}
-                onClick={() => {
-                  if (key === "ledger") {
-                    router.push(`/trips/${tripId}/ledger`);
-                    return;
-                  }
-                  if (key === "settle") {
-                    router.push(`/trips/${tripId}/ledger?step=settle`);
-                    return;
-                  }
-                  if (key === "photos") {
-                    router.push(`/trips/${tripId}/photos`);
-                    return;
-                  }
-                  setDetailTab(key);
-                }}
-                className={`min-h-tap flex-1 rounded-full px-1 py-2 text-xs font-bold transition sm:text-sm ${
-                  selected
-                    ? "bg-surface-white text-brand shadow-sm"
-                    : "text-ink-body"
-                }`}
-              >
-                {key === "photos" ? (
-                  <span className="inline-flex items-center justify-center gap-1">
-                    <Images className="h-3.5 w-3.5" aria-hidden />
-                    {label}
-                  </span>
-                ) : (
-                  label
-                )}
-              </button>
-            );
-          })}
-        </div>
+        <TripDetailNavTabs
+          tripId={tripId}
+          detailTab={detailTab}
+          setDetailTab={setDetailTab}
+          onNavigate={(href) => router.push(href)}
+        />
 
         {detailTab === "summary" ? (
           <TripSummaryPanel
@@ -393,50 +268,34 @@ export function TripDetailContent({ tripId }: TripDetailContentProps) {
         ) : null}
 
         <div ref={scheduleSectionRef}>
-        <TripDetailScheduleSection
-          trip={trip}
-          canEdit={canEdit}
-          isGuest={isGuest}
-          detailTab={detailTab}
-          spendByPlaceId={!isGuest ? ledger.spendByPlaceId : undefined}
-          mapHighlightKey={mapHighlightKey}
-          onSelectMapPoint={handleSelectMapPoint}
-          scheduleItemRefs={scheduleItemRefs}
-          reorderMode={reorderMode}
-          setReorderMode={setReorderMode}
-          reorderError={reorderError}
-          setReorderError={setReorderError}
-          cancelDayEdit={cancelDayEdit}
-          updateTripSchedule={updateTripSchedule}
-          applyScheduleReorder={applyScheduleReorder}
-          editingDayIndex={editingDayIndex}
-          draftDay={draftDay}
-          openDayEdit={openDayEdit}
-          updateDraftItem={updateDraftItem}
-          sortDraftDayByTime={sortDraftDayByTime}
-          removeDraftItem={removeDraftItem}
-          addDraftItem={addDraftItem}
-          saveDayEdit={saveDayEdit}
-        />
+          <TripDetailScheduleSection
+            trip={trip}
+            canEdit={canEdit}
+            isGuest={isGuest}
+            detailTab={detailTab}
+            spendByPlaceId={!isGuest ? ledger.spendByPlaceId : undefined}
+            mapHighlightKey={mapHighlightKey}
+            onSelectMapPoint={handleSelectMapPoint}
+            scheduleItemRefs={scheduleItemRefs}
+            reorderMode={reorderMode}
+            setReorderMode={setReorderMode}
+            reorderError={reorderError}
+            setReorderError={setReorderError}
+            cancelDayEdit={cancelDayEdit}
+            updateTripSchedule={updateTripSchedule}
+            applyScheduleReorder={applyScheduleReorder}
+            editingDayIndex={editingDayIndex}
+            draftDay={draftDay}
+            openDayEdit={openDayEdit}
+            updateDraftItem={updateDraftItem}
+            sortDraftDayByTime={sortDraftDayByTime}
+            removeDraftItem={removeDraftItem}
+            addDraftItem={addDraftItem}
+            saveDayEdit={saveDayEdit}
+          />
         </div>
 
-        {styleLabels.length > 0 ? (
-          <section className="flex flex-col gap-3">
-            <h3 className="text-lg font-extrabold text-ink-heading">
-              여행 스타일
-            </h3>
-            <div className="flex flex-wrap gap-2">
-              {styleLabels.map((label) => (
-                <span
-                  key={label}
-                  className="rounded-full bg-surface-soft px-3 py-1.5 text-sm font-semibold text-brand-strong"
-                >
-                  {label}
-                </span>
-              ))}
-            </div>
-          </section>
-        ) : null}
+        <TripDetailStyleSection styleLabels={styleLabels} />
 
         <TripDetailTipsSection tips={trip.tips ?? []} />
 
@@ -472,26 +331,14 @@ export function TripDetailContent({ tripId }: TripDetailContentProps) {
       />
 
       {canEdit && !isGuest ? (
-        <>
-          <button
-            type="button"
-            aria-label="추가"
-            onClick={() => setIntentOpen(true)}
-            className="mu-focus fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom))] right-[max(1rem,calc(50%-11rem))] z-30 flex h-14 w-14 items-center justify-center rounded-full bg-mu-accent text-mu-on-accent shadow-mu-float"
-          >
-            <Plus className="h-6 w-6" strokeWidth={2.2} aria-hidden />
-          </button>
-          <TripIntentSheet
-            open={intentOpen}
-            onClose={() => setIntentOpen(false)}
-            onSelect={handleTripIntent}
-          />
-          <TripBotSheet
-            tripId={tripId}
-            open={botOpen}
-            onClose={() => setBotOpen(false)}
-          />
-        </>
+        <TripDetailIntentFab
+          tripId={tripId}
+          intentOpen={intentOpen}
+          setIntentOpen={setIntentOpen}
+          botOpen={botOpen}
+          setBotOpen={setBotOpen}
+          onSelectIntent={handleTripIntent}
+        />
       ) : null}
     </MobileShell>
   );

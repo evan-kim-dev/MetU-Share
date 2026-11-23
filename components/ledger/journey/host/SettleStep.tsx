@@ -1,23 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Settings } from "lucide-react";
-import { AmountCard } from "@/components/ds/AmountCard";
 import { BottomCTA } from "@/components/ds/BottomCTA";
-import { CurrencyTotals } from "@/components/ledger/CurrencyTotals";
-import { FeeLeakCard } from "@/components/ledger/FeeLeakCard";
-import { MyShareCard } from "@/components/ledger/MyShareCard";
 import { SettleExplainSheet } from "@/components/ledger/SettleExplainSheet";
 import {
   SplitChatRoom,
   toSplitChatMembers,
 } from "@/components/ledger/SplitChatRoom";
-import {
-  useSettleReference,
-  type SettleReference,
-} from "@/components/ledger/useSettleReference";
+import { useSettleReference } from "@/components/ledger/useSettleReference";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { explainSettlement } from "@/lib/ledger/explain";
 import { resolveMyShare } from "@/lib/ledger/my-share";
@@ -37,43 +28,14 @@ import {
 } from "@/lib/ledger/supabase";
 import type { LedgerExpenseRow, TripMember } from "@/lib/ledger/types";
 import { TABLES } from "@/lib/constants";
-import { formatKRW } from "@/lib/shared/format";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 
-function signedKRW(value: number): string {
-  if (value > 0) return `+${formatKRW(value)}`;
-  if (value < 0) return `-${formatKRW(-value)}`;
-  return formatKRW(0);
-}
+import type { SettleStepProps } from "./settle-step-types";
+import { toSettleExpense } from "./settle-step-utils";
+import { SettleStepHeader } from "./SettleStepHeader";
+import { SettleStepSummary } from "./SettleStepSummary";
 
-function balanceTone(value: number): string {
-  if (value > 0) return "text-mu-ok";
-  if (value < 0) return "text-mu-warn";
-  return "text-mu-fg-3";
-}
-
-function toSettleExpense(row: LedgerExpenseRow): LedgerExpense {
-  return {
-    id: row.id,
-    paidBy: row.paidBy,
-    krwAmount: row.krwAmount,
-    shares: row.shares,
-  };
-}
-
-type Props = {
-  tripId: string;
-  /** page = `/ledger/settle` 단독. journey = TripJourney 정산 칸. */
-  mode?: "page" | "journey";
-  /** journey 모드에서 분담 단계로 이동 */
-  onAdjust?: () => void;
-  /** journey 모드에서 송금 단계로 이동 */
-  onPay?: () => void;
-  /** journey 모드 제목 옆 설정(톱니) */
-  onOpenSettings?: () => void;
-  /** settle URL 에서 PayStep 과 공유할 참고 환율 상태 */
-  reference?: SettleReference;
-};
+type Props = SettleStepProps;
 
 /**
  * 호스트 ⑤ 정산 단계. 잔액·통화합계·수수료 차이 → 정산표 생성.
@@ -354,44 +316,11 @@ export function SettleStep({
           : "flex flex-col gap-3 px-4 pt-3 pb-[calc(6.5rem+env(safe-area-inset-bottom))]"
       }
     >
-      {mode === "page" ? (
-        <>
-          <Link
-            href={`/trips/${tripId}/ledger`}
-            className="text-mu-caption font-bold text-mu-accent"
-          >
-            ← 정산 여정
-          </Link>
-          <div className="flex items-center justify-between">
-            <h1 className="text-mu-title text-mu-fg">정산</h1>
-            <Link
-              href={`/trips/${tripId}/ledger`}
-              className="flex min-h-tap items-center text-mu-caption font-bold text-mu-accent"
-            >
-              가계부
-            </Link>
-          </div>
-        </>
-      ) : (
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <h2 className="text-mu-title text-mu-fg">이 금액으로 정산해요</h2>
-            <p className="mt-1 text-mu-body text-mu-fg-2">
-              내 몫을 확인하고 정산표를 만들어요.
-            </p>
-          </div>
-          {onOpenSettings ? (
-            <button
-              type="button"
-              aria-label="설정"
-              className="mu-focus -mr-1 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-mu-md text-mu-fg-2"
-              onClick={onOpenSettings}
-            >
-              <Settings className="h-5 w-5" strokeWidth={1.75} aria-hidden />
-            </button>
-          ) : null}
-        </div>
-      )}
+      <SettleStepHeader
+        mode={mode}
+        tripId={tripId}
+        onOpenSettings={onOpenSettings}
+      />
 
       {loadError ? (
         <p
@@ -416,84 +345,16 @@ export function SettleStep({
       ) : null}
 
       {loaded ? (
-        <section
-          aria-label="정산 요약"
-          className="overflow-hidden rounded-mu-xl border border-mu-line bg-mu-card"
-        >
-          {me ? (
-            <MyShareCard
-              view={{
-                ...myShare,
-                hint: null,
-              }}
-              cardClassName="rounded-none border-0 pb-3"
-              action={
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <span
-                    className="text-mu-caption text-mu-fg-3"
-                    aria-label={`여행 총액 ${formatKRW(totalKrw)}`}
-                  >
-                    여행 총액{" "}
-                    <span className="mu-num font-semibold text-mu-fg-2">
-                      {formatKRW(totalKrw)}
-                    </span>
-                    {myShare.mode === "estimate" ? " · 아직 예상" : null}
-                  </span>
-                  <button
-                    type="button"
-                    className="mu-focus min-h-tap text-mu-caption font-bold text-mu-accent"
-                    onClick={() => setExplainOpen(true)}
-                  >
-                    왜 이 금액?
-                  </button>
-                </div>
-              }
-            />
-          ) : (
-            <AmountCard
-              label="내 몫"
-              amount={0}
-              tone="neutral"
-              sub="멤버로 합류하면 내 몫이 보여요"
-              className="rounded-none border-0"
-            />
-          )}
-
-          {others.length > 0 ? (
-            <ul
-              aria-label="다른 멤버"
-              className="border-t border-mu-line divide-y divide-mu-line"
-            >
-              {others.map((m) => {
-                const value = balances[m.id] ?? 0;
-                return (
-                  <li
-                    key={m.id}
-                    data-testid={`balance-${m.id}`}
-                    className="flex min-h-tap items-center justify-between gap-3 px-6 py-2.5"
-                  >
-                    <span className="text-mu-body text-mu-fg-2">
-                      {m.displayName}
-                    </span>
-                    <span
-                      className={`mu-num text-mu-body font-semibold ${balanceTone(value)}`}
-                    >
-                      {signedKRW(value)}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : null}
-
-          <CurrencyTotals
-            totals={currencyTotals}
-            totalKrw={totalKrw}
-            className="mx-4 mb-3 rounded-mu-lg bg-mu-sunken px-4 py-3"
-          />
-
-          <FeeLeakCard expenses={expenseRows} embedded />
-        </section>
+        <SettleStepSummary
+          me={me}
+          myShare={myShare}
+          totalKrw={totalKrw}
+          others={others}
+          balances={balances}
+          currencyTotals={currencyTotals}
+          expenseRows={expenseRows}
+          onExplain={() => setExplainOpen(true)}
+        />
       ) : null}
 
       {loaded ? (
