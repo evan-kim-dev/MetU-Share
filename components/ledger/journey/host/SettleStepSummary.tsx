@@ -7,7 +7,7 @@ import type { LedgerExpenseRow, TripMember } from "@/lib/ledger/types";
 import type { CurrencyTotal } from "@/lib/ledger/stats";
 import { formatKRW } from "@/lib/shared/format";
 
-import { balanceTone, signedKRW } from "./settle-step-utils";
+import { SettleStepMemberList } from "./SettleStepMemberList";
 
 type Props = {
   me: TripMember | undefined;
@@ -74,32 +74,7 @@ export function SettleStepSummary({
         />
       )}
 
-      {others.length > 0 ? (
-        <ul
-          aria-label="다른 멤버"
-          className="border-t border-mu-line divide-y divide-mu-line"
-        >
-          {others.map((m) => {
-            const value = balances[m.id] ?? 0;
-            return (
-              <li
-                key={m.id}
-                data-testid={`balance-${m.id}`}
-                className="flex min-h-tap items-center justify-between gap-3 px-6 py-2.5"
-              >
-                <span className="text-mu-body text-mu-fg-2">
-                  {m.displayName}
-                </span>
-                <span
-                  className={`mu-num text-mu-body font-semibold ${balanceTone(value)}`}
-                >
-                  {signedKRW(value)}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
+      <SettleStepMemberList others={others} balances={balances} />
 
       <CurrencyTotals
         totals={currencyTotals}

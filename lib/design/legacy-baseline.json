@@ -5,7 +5,7 @@
   "app/auth": 2,
   "app/checklist": 1,
   "app/onboarding": 13,
-  "app/share-target": 17,
+  "app/share-target": 0,
   "components/agent": 1,
   "components/auth": 84,
   "components/checklist": 107,

@@ -1,51 +1,16 @@
 "use client";
 
-import Link from "next/link";
-import { Wallet } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BottomCTA } from "@/components/ds/BottomCTA";
-import { Button } from "@/components/ds/Button";
-import { EmptyState } from "@/components/ds/EmptyState";
-import { Sheet } from "@/components/ds/Sheet";
-import { SettlementHistory } from "@/components/ledger/SettlementHistory";
-import { useSettleReference } from "@/components/ledger/useSettleReference";
-import { useClipboardCopy } from "@/components/onboarding/connect/useClipboardCopy";
-import { useAuth } from "@/lib/auth/AuthProvider";
-import {
-  PAY_DEEPLINK_NOTICE,
-  PAY_OPEN_FAILED_MESSAGE,
-  launchPayApp,
-  payAmountText,
-  payGuidance,
-  type PayApp,
-} from "@/lib/ledger/pay-links";
-import {
-  basisHash,
-  computeBalances,
-  type LedgerExpense,
-} from "@/lib/ledger/settle";
-import {
-  buildShareText,
-  shareReasonMessage,
-} from "@/lib/ledger/settle-share";
-import {
-  fetchLatestSettlement,
-  fetchSettlementHistory,
-  listExpenses,
-  listMembers,
-  listVoidedExpenseIds,
-  type SettlementHistoryItem,
-  type SettlementSnapshot,
-} from "@/lib/ledger/supabase";
-import type { TripMember } from "@/lib/ledger/types";
-import { formatKRW } from "@/lib/shared/format";
-import { getBrowserSupabase } from "@/lib/supabase/browser";
-
 import type { PayStepProps } from "./pay-step-types";
+import { PayStepCta } from "./PayStepCta";
+import { PayStepEmpty } from "./PayStepEmpty";
+import { PayStepHeader } from "./PayStepHeader";
+import { PayStepHistorySection } from "./PayStepHistorySection";
+import { PayStepPayNote } from "./PayStepPayNote";
 import { PayStepProgressCard } from "./PayStepProgressCard";
 import { PayStepShareSection } from "./PayStepShareSection";
 import { PayStepStatusBanners } from "./PayStepStatusBanners";
 import { PayStepTransferList } from "./PayStepTransferList";
+import { usePayStep } from "./usePayStep";
 
 type Props = PayStepProps;
 
@@ -60,259 +25,20 @@ export function PayStep({
   onSettle,
   onRecap,
   onDone,
-  reference: referenceProp,
+  reference,
 }: Props) {
-  const { user } = useAuth();
-  const [members, setMembers] = useState<TripMember[]>([]);
-  const [expenses, setExpenses] = useState<LedgerExpense[]>([]);
-  const [fxFallbackCount, setFxFallbackCount] = useState(0);
-  const [settlement, setSettlement] = useState<SettlementSnapshot | null>(null);
-  const [history, setHistory] = useState<SettlementHistoryItem[]>([]);
-  const [basisState, setBasisState] = useState<{
-    source: LedgerExpense[];
-    hash: string;
-  } | null>(null);
-  const [msg, setMsg] = useState("");
-  const [loadError, setLoadError] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  const [payNote, setPayNote] = useState("");
-  const [origin, setOrigin] = useState("");
-  const [canNativeShare, setCanNativeShare] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const p = usePayStep({ tripId, audience, reference });
 
-  const textCopy = useClipboardCopy();
-  const linkCopy = useClipboardCopy();
-  const amountCopy = useClipboardCopy();
-  const payCleanup = useRef<(() => void) | null>(null);
-  const localReference = useSettleReference();
-  const reference = referenceProp ?? localReference;
-
-  useEffect(() => {
-    setOrigin(window.location.origin);
-    setCanNativeShare(typeof navigator.share === "function");
-    return () => payCleanup.current?.();
-  }, []);
-
-  const loadSettlement = useCallback(async () => {
-    const supabase = getBrowserSupabase();
-    if (!supabase) return;
-    const res = await fetchLatestSettlement(supabase, tripId);
-    if (!res.ok) {
-      setLoadError(true);
-      return;
-    }
-    setSettlement(res.settlement);
-    const past = await fetchSettlementHistory(supabase, tripId);
-    if (past) setHistory(past);
-  }, [tripId]);
-
-  const reload = useCallback(async () => {
-    const supabase = getBrowserSupabase();
-    if (!supabase) return;
-    const [m, e, voided] = await Promise.all([
-      listMembers(supabase, tripId),
-      listExpenses(supabase, tripId),
-      listVoidedExpenseIds(supabase, tripId),
-    ]);
-    if (voided === null) setLoadError(true);
-    const active = e.filter((row) => !voided?.has(row.id));
-    setMembers(m);
-    setExpenses(
-      active.map((row) => ({
-        id: row.id,
-        paidBy: row.paidBy,
-        krwAmount: row.krwAmount,
-        shares: row.shares,
-      }))
-    );
-    setFxFallbackCount(active.filter((row) => row.fxIsFallback).length);
-    await loadSettlement();
-    setLoaded(true);
-  }, [tripId, loadSettlement]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void basisHash(expenses).then((hash) => {
-      if (!cancelled) setBasisState({ source: expenses, hash });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [expenses]);
-
-  const balances = useMemo(
-    () =>
-      computeBalances(
-        members.map((m) => m.id),
-        expenses
-      ),
-    [members, expenses]
-  );
-
-  const names = useMemo(
-    () => Object.fromEntries(members.map((m) => [m.id, m.displayName])),
-    [members]
-  );
-  const nameOf = (id: string) => names[id] ?? "?";
-
-  const me = useMemo(
-    () =>
-      user ? members.find((m) => m.userId && m.userId === user.id) : undefined,
-    [members, user]
-  );
-
-  const basis =
-    loaded && basisState && basisState.source === expenses
-      ? basisState.hash
-      : "";
-  const transfers = useMemo(() => settlement?.transfers ?? [], [settlement]);
-  const status = settlement?.status ?? "";
-  const sharePath = settlement?.shareToken ? `/s/${settlement.shareToken}` : "";
-  const shareUrl = sharePath && origin ? `${origin}${sharePath}` : "";
-
-  const stale = Boolean(
-    settlement &&
-      (settlement.status === "stale" ||
-        (basis && basis !== settlement.basisHash))
-  );
-  const allPaid =
-    transfers.length > 0 && transfers.every((t) => t.status === "paid");
-  const completed = status === "completed" || allPaid;
-  const paidCount = transfers.filter((t) => t.status === "paid").length;
-  const isOwner = Boolean(me?.isOwner);
-  const myOutgoing = transfers.filter((t) => me && t.from === me.id);
-  const myOutgoingUnpaid = myOutgoing.filter((t) => t.status !== "paid");
-  const myOutgoingDone =
-    myOutgoing.length > 0 && myOutgoingUnpaid.length === 0;
-  const visibleTransfers =
-    audience === "guest" && me
-      ? transfers.filter((t) => t.from === me.id || t.to === me.id)
-      : transfers;
-
-  const shareResult = useMemo(() => {
-    if (!settlement || transfers.length === 0) return null;
-    return buildShareText({
-      names,
-      transfers,
-      balances,
-      shareUrl: shareUrl || null,
-      fxFallbackCount,
-      conversion: reference.shareConversion,
-    });
-  }, [
-    settlement,
-    transfers,
-    names,
-    balances,
-    shareUrl,
-    fxFallbackCount,
-    reference.shareConversion,
-  ]);
-
-  const shareText = !stale && shareResult?.ok ? shareResult.text : null;
-  const shareBlockedMessage = stale
-    ? "지출이 바뀌어서 공유 문구를 만들 수 없어요. 정산을 다시 계산해 주세요."
-    : shareResult && !shareResult.ok
-      ? shareReasonMessage(shareResult.reason)
-      : "";
-
-  async function markPaid(transferId: string) {
-    const supabase = getBrowserSupabase();
-    if (!supabase) return;
-    const { error } = await supabase.rpc("mark_transfer_paid", {
-      p_transfer_id: transferId,
-    });
-    if (error) {
-      console.error("[mark_transfer_paid]", error.message);
-      setMsg("완료 처리 실패");
-      return;
-    }
-    setMsg("");
-    await loadSettlement();
-  }
-
-  async function copyShareText() {
-    if (!shareText) return;
-    await textCopy.copy(shareText);
-  }
-
-  async function copyShareLink() {
-    if (!shareUrl) return;
-    await linkCopy.copy(shareUrl);
-  }
-
-  async function nativeShare() {
-    if (!shareText || typeof navigator.share !== "function") return;
-    try {
-      await navigator.share({
-        title: "정산 안내",
-        text: shareText,
-      });
-    } catch (e) {
-      if (e instanceof DOMException && e.name === "AbortError") return;
-      console.error("[navigator.share]", e instanceof Error ? e.message : e);
-      setMsg("공유하지 못했어요. 복사해서 보내 주세요.");
-    }
-  }
-
-  function openPayApp(app: PayApp, krw: number) {
-    const amount = payAmountText(krw);
-    if (!amount) {
-      setMsg("금액을 확인할 수 없어요.");
-      return;
-    }
-    void amountCopy.copy(amount).then((ok) => {
-      setPayNote((prev) =>
-        prev === PAY_OPEN_FAILED_MESSAGE
-          ? prev
-          : ok
-            ? payGuidance(app.label, formatKRW(krw))
-            : `금액을 복사하지 못했어요. ${formatKRW(krw)}을 직접 입력해 주세요.`
-      );
-    });
-    setPayNote(payGuidance(app.label, formatKRW(krw)));
-    payCleanup.current?.();
-    payCleanup.current = launchPayApp(app.id, {
-      onFallback: () => setPayNote(PAY_OPEN_FAILED_MESSAGE),
-    });
-  }
-
-  const settleHref = `/trips/${tripId}/ledger?step=settle`;
-  const recapHref = `/trips/${tripId}/ledger/recap`;
-
-  if (loaded && !settlement) {
+  if (p.loaded && !p.settlement) {
     return (
-      <div className={mode === "page" ? "pb-8" : "pb-24"}>
-        <EmptyState
-          icon={Wallet}
-          title="먼저 정산을 계산해요"
-          body={
-            audience === "guest"
-              ? "호스트가 정산을 만들면 내가 보낼 금액이 여기에 보여요."
-              : "호스트가 정산표를 만들면 여기서 송금할 수 있어요."
-          }
-          action={
-            audience === "guest" ? undefined : onSettle ? (
-              <Button onClick={onSettle}>정산하러 가기</Button>
-            ) : (
-              <Link
-                href={settleHref}
-                className="mu-focus text-mu-label text-mu-accent"
-              >
-                정산 화면 보기
-              </Link>
-            )
-          }
-        />
-      </div>
+      <PayStepEmpty
+        mode={mode}
+        audience={audience}
+        settleHref={p.settleHref}
+        onSettle={onSettle}
+      />
     );
   }
-
-  const myOutgoingPaid = myOutgoing.filter((t) => t.status === "paid").length;
 
   return (
     <div
@@ -322,153 +48,95 @@ export function PayStep({
           : "flex flex-col gap-5 pb-24"
       }
     >
-      {mode === "journey" ? (
-        <div>
-          <h2 className="text-mu-title text-mu-fg">송금을 챙겨요</h2>
-          <p className="mt-1 text-mu-body text-mu-fg-2">
-            {audience === "guest"
-              ? "내 송금만 보여요. 앱에서 보낸 뒤 ‘송금 완료’를 눌러 주세요."
-              : "앱에서 직접 송금한 뒤, 여기서 완료를 눌러 주세요."}
-          </p>
-        </div>
-      ) : null}
+      {mode === "journey" ? <PayStepHeader audience={audience} /> : null}
 
       <PayStepStatusBanners
-        loadError={loadError}
-        stale={stale}
-        completed={completed}
+        loadError={p.loadError}
+        stale={p.stale}
+        completed={p.completed}
         autoOriginPending={
-          Boolean(settlement?.origin === "auto" && !completed)
+          Boolean(p.settlement?.origin === "auto" && !p.completed)
         }
-        settleHref={settleHref}
+        settleHref={p.settleHref}
         onSettle={onSettle}
       />
 
-      {settlement && visibleTransfers.length > 0 ? (
+      {p.settlement && p.visibleTransfers.length > 0 ? (
         <PayStepProgressCard
           audience={audience}
-          paidCount={paidCount}
-          transferCount={transfers.length}
-          myOutgoingPaid={myOutgoingPaid}
-          myOutgoingTotal={myOutgoing.length}
+          paidCount={p.paidCount}
+          transferCount={p.transfers.length}
+          myOutgoingPaid={p.myOutgoingPaid}
+          myOutgoingTotal={p.myOutgoing.length}
         />
       ) : null}
 
       <PayStepTransferList
-        transfers={visibleTransfers}
-        nameOf={nameOf}
-        meId={me?.id}
-        isOwner={isOwner}
-        stale={stale}
-        onMarkPaid={(id) => void markPaid(id)}
-        onOpenPayApp={openPayApp}
+        transfers={p.visibleTransfers}
+        nameOf={p.nameOf}
+        meId={p.me?.id}
+        isOwner={p.isOwner}
+        stale={p.stale}
+        onMarkPaid={(id) => void p.markPaid(id)}
+        onOpenPayApp={p.openPayApp}
       />
 
-      {payNote ? (
-        <div
-          role="status"
-          className="rounded-mu-lg border border-mu-line bg-mu-sunken px-4 py-3 text-mu-caption text-mu-fg-2"
-        >
-          <p>{payNote}</p>
-          <p className="mt-1 font-semibold">{PAY_DEEPLINK_NOTICE}</p>
-          {amountCopy.label ? (
-            <p className="mt-1 text-mu-fg-3">{amountCopy.label}</p>
-          ) : null}
-        </div>
-      ) : null}
+      <PayStepPayNote
+        payNote={p.payNote}
+        amountCopyLabel={p.amountCopy.label}
+      />
 
-      {audience === "host" && settlement && transfers.length > 0 ? (
+      {audience === "host" && p.settlement && p.transfers.length > 0 ? (
         <PayStepShareSection
-          shareBlockedMessage={shareBlockedMessage}
-          shareText={shareText}
-          sharePath={sharePath}
-          shareUrl={shareUrl}
-          canNativeShare={canNativeShare}
-          textCopyLabel={textCopy.label}
-          linkCopyLabel={linkCopy.label}
-          onCopyShareText={() => void copyShareText()}
-          onCopyShareLink={() => void copyShareLink()}
-          onNativeShare={() => void nativeShare()}
+          shareBlockedMessage={p.shareBlockedMessage}
+          shareText={p.shareText}
+          sharePath={p.sharePath}
+          shareUrl={p.shareUrl}
+          canNativeShare={p.canNativeShare}
+          textCopyLabel={p.textCopy.label}
+          linkCopyLabel={p.linkCopy.label}
+          onCopyShareText={() => void p.copyShareText()}
+          onCopyShareLink={() => void p.copyShareLink()}
+          onNativeShare={() => void p.nativeShare()}
         />
       ) : null}
 
-      {mode === "journey" && audience === "host" ? (
-        <>
-          <button
-            type="button"
-            className="min-h-tap self-start text-mu-caption font-bold text-mu-accent"
-            onClick={() => setHistoryOpen(true)}
-          >
-            이전 정산 보기
-          </button>
-          <Sheet
-            open={historyOpen}
-            onClose={() => setHistoryOpen(false)}
-            title="이전 정산"
-          >
-            <SettlementHistory
-              items={history}
-              currentId={settlement?.id ?? null}
-              origin={origin}
-            />
-          </Sheet>
-        </>
-      ) : null}
+      <PayStepHistorySection
+        mode={mode}
+        audience={audience}
+        history={p.history}
+        currentId={p.settlement?.id ?? null}
+        origin={p.origin}
+        historyOpen={p.historyOpen}
+        onOpenHistory={() => p.setHistoryOpen(true)}
+        onCloseHistory={() => p.setHistoryOpen(false)}
+      />
 
-      {mode === "page" ? (
-        <SettlementHistory
-          items={history}
-          currentId={settlement?.id ?? null}
-          origin={origin}
-        />
-      ) : null}
-
-      {msg ? <p className="text-mu-caption text-mu-fg-3">{msg}</p> : null}
+      {p.msg ? <p className="text-mu-caption text-mu-fg-3">{p.msg}</p> : null}
 
       {mode === "journey" && audience === "host" ? (
-        <BottomCTA
-          label={completed ? "리캡 보기" : "정산 현황 공유하기"}
-          onClick={() => {
-            if (completed) {
-              if (onRecap) onRecap();
-              else window.location.href = recapHref;
-              return;
-            }
-            void copyShareText();
-          }}
-          disabled={!completed && !shareText}
-          hint={
-            completed
-              ? undefined
-              : shareText
-                ? "문구를 복사해 동행에게 보내요"
-                : shareBlockedMessage || undefined
-          }
+        <PayStepCta
+          audience="host"
+          completed={p.completed}
+          shareText={p.shareText}
+          shareBlockedMessage={p.shareBlockedMessage}
+          recapHref={p.recapHref}
+          onRecap={onRecap}
+          onCopyShareText={() => void p.copyShareText()}
         />
       ) : null}
 
       {mode === "journey" && audience === "guest" ? (
-        <BottomCTA
-          label={
-            myOutgoingDone || myOutgoing.length === 0
-              ? "완료 확인"
-              : "송금 완료했어요"
-          }
-          onClick={() => {
-            if (myOutgoingDone || myOutgoing.length === 0) {
-              onDone?.();
-              return;
-            }
-            setMsg(
+        <PayStepCta
+          audience="guest"
+          myOutgoingDone={p.myOutgoingDone}
+          myOutgoingLength={p.myOutgoing.length}
+          myOutgoingUnpaidCount={p.myOutgoingUnpaid.length}
+          onDone={onDone}
+          onRemindUnpaid={() =>
+            p.setMsg(
               "아직 보낼 송금이 있어요. 앱에서 보낸 뒤 각 항목의 ‘송금 완료’를 눌러 주세요."
-            );
-          }}
-          hint={
-            myOutgoingUnpaid.length > 0
-              ? `남은 송금 ${myOutgoingUnpaid.length}건`
-              : myOutgoing.length === 0
-                ? "내가 보낼 금액은 없어요"
-                : undefined
+            )
           }
         />
       ) : null}
