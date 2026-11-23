@@ -1,13 +1,7 @@
-/** 로그인 플로우로 다시 보내면 리다이렉트 루프가 나요. */
+/** 로그인/콜백으로 다시 보내면 리다이렉트 루프가 나요. (/update-password 는 허용) */
 function isAuthLoopPath(pathname: string): boolean {
   if (pathname === "/login" || pathname.startsWith("/login?")) return true;
   if (pathname === "/auth" || pathname.startsWith("/auth/")) return true;
-  if (
-    pathname === "/update-password" ||
-    pathname.startsWith("/update-password?")
-  ) {
-    return true;
-  }
   return false;
 }
 

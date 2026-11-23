@@ -18,6 +18,9 @@ describe("safeNextPath", () => {
     expect(safeNextPath("/login")).toBe("/");
     expect(safeNextPath("/login?x=1")).toBe("/");
     expect(safeNextPath("/auth/callback")).toBe("/");
-    expect(safeNextPath("/update-password")).toBe("/");
+  });
+
+  it("allows update-password as next (비밀번호 재설정)", () => {
+    expect(safeNextPath("/update-password")).toBe("/update-password");
   });
 });

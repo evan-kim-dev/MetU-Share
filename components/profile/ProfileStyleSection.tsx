@@ -20,7 +20,7 @@ export function ProfileStyleSection({
   return (
     <section className="rounded-xl2 bg-mu-card p-6 shadow-soft">
       <div className="mb-4 flex items-center gap-3">
-        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-mint text-mint-dark">
+        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-mu-accent-soft text-mu-accent">
           <Sparkles className="h-5 w-5" strokeWidth={2.2} />
         </span>
         <h3 className="text-xl font-semibold text-mu-fg">여행 취향 설정</h3>
