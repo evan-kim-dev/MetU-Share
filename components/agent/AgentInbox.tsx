@@ -1,21 +1,26 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Sheet } from "@/components/ds/Sheet";
+import { AgentInboxEditSheet } from "@/components/agent/AgentInboxEditSheet";
+import { AgentInboxEmpty } from "@/components/agent/AgentInboxEmpty";
+import { AgentInboxEventCard } from "@/components/agent/AgentInboxEventCard";
+import { AgentInboxGuestPrompt } from "@/components/agent/AgentInboxGuestPrompt";
+import {
+  autoItems,
+  canEditDraft,
+  looksLikeJwtExpired,
+  mergedItems,
+  reviewItems,
+} from "@/components/agent/agent-inbox-helpers";
+import type {
+  AgentEventRow,
+  AgentInboxProps,
+  BulkAttachState,
+  Suggestion,
+} from "@/components/agent/agent-inbox-types";
 import { MobileShell } from "@/components/layout/MobileShell";
 import { QuickTripSheet } from "@/components/trips/QuickTripSheet";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import {
-  agentEventReasonLine,
-  agentEventStatusLabelForUi,
-  agentReasonMessage,
-  formatRelativeKo,
-  formatSmsPreviewLabel,
-  unassignedNote,
-  type SmsParsePreviewLabel,
-  type UnassignedSuggestInfo,
-} from "@/lib/agent/event-status";
 import {
   buildTripSuggest,
   matchTripForEvent,
@@ -28,109 +33,11 @@ import { formatKRW } from "@/lib/shared/format";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { useTrips } from "@/lib/trips/TripProvider";
 
-type ResultItem = {
-  ref?: number;
-  decision?: string;
-  expenseId?: string;
-  reasons?: string[];
-  /** 정책 사유 코드 (lib/agent/policy.ts). 알면 event-status 의 사유 표를 쓴다. */
-  reasonCode?: string;
-  /** 같은 결제로 보이는 기존 지출 (영수증 합치기 후보) */
-  mergeInto?: string;
-  /** receipt_attach | billed_krw */
-  mergeKind?: string;
-  draft?: {
-    merchant?: string | null;
-    amount?: number | null;
-    currency?: string | null;
-    spentOn?: string | null;
-  };
-  priced?: { krwAmount?: number; amount?: number; currency?: string };
-};
-
-type AgentEventRow = {
-  id: string;
-  trip_id: string | null;
-  source: string;
-  kind: string;
-  status: string;
-  payload: { text?: string; received_at?: string; receivedAt?: string } | null;
-  result: {
-    items?: ResultItem[];
-    reason?: string;
-    /** 서버가 ingest/재매칭 때 계산한 "이 여행에 붙일까요?" 제안 */
-    suggest?: UnassignedSuggestInfo & { tripId: string };
-    /** 서버가 만든 한국어 사유 (reason 은 내부 코드) */
-    message?: string;
-    preview?: SmsParsePreviewLabel & { confidence?: number; kind?: string };
-  } | null;
-  error: string | null;
-  created_at: string;
-  processed_at: string | null;
-};
-
-type TripOption = { id: string; label: string };
-
-type Suggestion = UnassignedSuggestInfo & { tripId: string };
-
-/** result.reason 에 들어가는 매칭 실패 코드는 미리보기 문구로 쓰지 않는다. */
-const MATCH_REASON_CODES = new Set([
-  "unassigned",
-  "no_trips",
-  "no_dates",
-  "outside_window",
-]);
-
-function previewText(event: AgentEventRow): string {
-  const text =
-    typeof event.payload?.text === "string" ? event.payload.text.trim() : "";
-  if (text) return text.length > 120 ? `${text.slice(0, 120)}…` : text;
-  if (event.result?.message) return event.result.message;
-  if (event.result?.reason && !MATCH_REASON_CODES.has(event.result.reason)) {
-    return event.result.reason;
-  }
-  return event.kind === "image" ? "영수증 이미지" : "자동 수집 이벤트";
-}
-
-function isTestEvent(event: AgentEventRow): boolean {
-  const text =
-    typeof event.payload?.text === "string" ? event.payload.text.trim() : "";
-  return text.startsWith("MTU-TEST");
-}
-
-function autoItems(event: AgentEventRow): ResultItem[] {
-  const items = event.result?.items ?? [];
-  return items.filter((it) => it.decision === "auto_commit" && it.expenseId);
-}
-
-function mergedItems(event: AgentEventRow): ResultItem[] {
-  return (event.result?.items ?? []).filter(
-    (it) => it.decision === "merged" && it.expenseId
-  );
-}
-
-function reviewItems(event: AgentEventRow): ResultItem[] {
-  return (event.result?.items ?? []).filter((it) => it.decision === "review");
-}
-
-function looksLikeJwtExpired(message: string): boolean {
-  return /jwt|session|401|unauthorized|expired/i.test(message);
-}
-
 export function AgentInbox({
   tripId,
   trips: tripsProp,
   embedded = false,
-}: {
-  /** When omitted, shows all of the user's events (user-scoped inbox). */
-  tripId?: string | null;
-  trips?: TripOption[];
-  /**
-   * true면 MobileShell·바깥 패딩 없이 본문만.
-   * 여행 확인함(`LedgerInboxClient`)이 쉘을 소유할 때 사용.
-   */
-  embedded?: boolean;
-}) {
+}: AgentInboxProps) {
   const { user, provider, isReady: authReady, isLoggedIn } = useAuth();
   const isGuest = provider === "guest" || !user;
   const { activeTrips, trips: allTrips } = useTrips();
@@ -168,13 +75,7 @@ export function AgentInbox({
   const [editAmount, setEditAmount] = useState("");
   const [editCurrency, setEditCurrency] = useState("KRW");
   const [editSpentOn, setEditSpentOn] = useState("");
-  const [bulk, setBulk] = useState<{
-    tripId: string;
-    done: number;
-    total: number;
-    failed: number;
-    running: boolean;
-  } | null>(null);
+  const [bulk, setBulk] = useState<BulkAttachState | null>(null);
 
   const load = useCallback(async () => {
     if (isGuest) {
@@ -414,16 +315,6 @@ export function AgentInbox({
       error?: string;
     };
     if (!res.ok) throw new Error(json.error ?? "request-failed");
-  }
-
-  function canEditDraft(status: string): boolean {
-    return [
-      "needs_review",
-      "failed",
-      "ignored",
-      "unassigned",
-      "received",
-    ].includes(status);
   }
 
   function openEdit(event: AgentEventRow) {
@@ -767,108 +658,12 @@ export function AgentInbox({
     );
   }
 
-  function EventCard({
-    event,
-    tone,
-    label,
-  }: {
-    event: AgentEventRow;
-    tone: string;
-    label: string;
-  }) {
-    const reviews = reviewItems(event);
-    const test = isTestEvent(event);
-    const statusLabel = agentEventStatusLabelForUi({
-      status: event.status,
-      isTest: test,
-    });
-    const displayLabel = label || statusLabel;
+  function eventCardFooter(event: AgentEventRow) {
     return (
-      <article
-        key={event.id}
-        className={`rounded-2xl border p-3 ${tone} ${
-          test ? "opacity-70" : ""
-        }`}
-      >
-        <div className="flex items-start justify-between gap-2">
-          <span className="rounded-full bg-mu-card/80 px-2 py-0.5 text-xs font-bold tracking-wide text-mu-fg-2">
-            {test ? "연결 테스트" : displayLabel}
-          </span>
-          <time
-            className="text-xs text-mu-fg-2"
-            dateTime={event.created_at}
-            title={new Date(event.created_at).toLocaleString("ko-KR", {
-              timeZone: "Asia/Seoul",
-            })}
-          >
-            {formatRelativeKo(event.created_at)}
-            {" · "}
-            {new Date(event.created_at).toLocaleString("ko-KR", {
-              timeZone: "Asia/Seoul",
-              month: "short",
-              day: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </time>
-        </div>
-        {event.status === "unassigned" ? (
-          <p className="mt-2 text-xs leading-relaxed text-mu-warn">
-            {
-              unassignedNote({
-                hasTrips: trips.length > 0,
-                reason: event.result?.reason,
-                suggest: suggestions[event.id] ?? null,
-              }).message
-            }
-          </p>
-        ) : null}
-        {event.status === "failed" && !test ? (
-          <p role="status" className="mt-2 text-xs leading-relaxed text-mu-err">
-            {agentEventReasonLine({
-              status: event.status,
-              reason: event.result?.reason,
-              error: event.error,
-            })}
-          </p>
-        ) : null}
-        <p className="mt-2 text-sm font-semibold text-mu-fg">
-          {previewText(event)}
-        </p>
-        {event.result?.preview
-          ? (() => {
-              const previewLabel = formatSmsPreviewLabel(event.result.preview!);
-              return previewLabel ? (
-                <p className="mt-1 text-xs font-semibold text-mu-accent">
-                  {previewLabel}
-                </p>
-              ) : null;
-            })()
-          : null}
-        {rowErrors[event.id] ? (
-          <p role="alert" className="mt-1 text-xs text-mu-err">
-            {rowErrors[event.id]}
-          </p>
-        ) : null}
-        {reviews.length > 0 ? (
-          <ul className="mt-2 space-y-1 text-xs text-mu-fg-2">
-            {reviews.map((it) => (
-              <li key={`${event.id}-r-${it.ref}`}>
-                {agentReasonMessage(it.reasonCode) ||
-                  (it.reasons ?? []).join(" · ") ||
-                  `${it.draft?.merchant ?? "항목"} 확인이 필요해요`}
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        {mergedItems(event).length > 0 ? (
-          <p className="mt-2 text-xs font-semibold text-mu-ok">
-            이미 있는 지출에 영수증을 붙였어요
-          </p>
-        ) : null}
+      <>
         {renderAutoUndo(event)}
         {renderActions(event)}
-      </article>
+      </>
     );
   }
 
@@ -889,22 +684,7 @@ export function AgentInbox({
         ) : null}
 
         {isGuest ? (
-          <section className="rounded-2xl border border-mu-line bg-mu-card p-5 text-center">
-            <h2 className="text-base font-extrabold text-mu-fg">
-              로그인하면 받은 알림을 볼 수 있어요
-            </h2>
-            <p className="mt-2 text-sm leading-relaxed text-mu-fg-2">
-              카드·은행 알림을 자동으로 모아 가계부에 넣어 드려요.
-            </p>
-            <Link
-              href={`/login?next=${encodeURIComponent(
-                tripId ? `/trips/${tripId}/ledger/inbox` : "/agent/inbox"
-              )}`}
-              className="bg-mu-accent mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-2xl text-sm font-bold text-mu-on-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mu-accent"
-            >
-              로그인하기
-            </Link>
-          </section>
+          <AgentInboxGuestPrompt tripId={tripId} />
         ) : (
           <>
             {unassignedCount > 0 ? (
@@ -1023,11 +803,15 @@ export function AgentInbox({
                       </div>
                     ))}
                     {groups.unassignedCards.map((e) => (
-                      <EventCard
+                      <AgentInboxEventCard
                         key={e.id}
                         event={e}
                         label="미할당"
                         tone="border-mu-warn/30 bg-mu-warn-soft/80"
+                        trips={trips}
+                        suggestions={suggestions}
+                        rowError={rowErrors[e.id]}
+                        footer={eventCardFooter(e)}
                       />
                     ))}
                   </section>
@@ -1039,11 +823,15 @@ export function AgentInbox({
                       처리 중
                     </h2>
                     {groups.processing.map((e) => (
-                      <EventCard
+                      <AgentInboxEventCard
                         key={e.id}
                         event={e}
                         label="처리 중"
                         tone="border-mu-accent/20 bg-mu-accent-soft"
+                        trips={trips}
+                        suggestions={suggestions}
+                        rowError={rowErrors[e.id]}
+                        footer={eventCardFooter(e)}
                       />
                     ))}
                   </section>
@@ -1055,11 +843,15 @@ export function AgentInbox({
                       확인이 필요해요
                     </h2>
                     {groups.review.map((e) => (
-                      <EventCard
+                      <AgentInboxEventCard
                         key={e.id}
                         event={e}
                         label="확인이 필요해요"
                         tone="border-mu-warn/30 bg-mu-warn-soft/80"
+                        trips={trips}
+                        suggestions={suggestions}
+                        rowError={rowErrors[e.id]}
+                        footer={eventCardFooter(e)}
                       />
                     ))}
                   </section>
@@ -1071,11 +863,15 @@ export function AgentInbox({
                       실패
                     </h2>
                     {groups.failed.map((e) => (
-                      <EventCard
+                      <AgentInboxEventCard
                         key={e.id}
                         event={e}
                         label="실패"
                         tone="border-mu-err/30 bg-mu-err-soft"
+                        trips={trips}
+                        suggestions={suggestions}
+                        rowError={rowErrors[e.id]}
+                        footer={eventCardFooter(e)}
                       />
                     ))}
                   </section>
@@ -1087,11 +883,15 @@ export function AgentInbox({
                       자동 추가됨
                     </h2>
                     {groups.autoDone.map((e) => (
-                      <EventCard
+                      <AgentInboxEventCard
                         key={e.id}
                         event={e}
                         label="자동 추가"
                         tone="border-mu-ok/30 bg-mu-ok-soft/60"
+                        trips={trips}
+                        suggestions={suggestions}
+                        rowError={rowErrors[e.id]}
+                        footer={eventCardFooter(e)}
                       />
                     ))}
                   </section>
@@ -1109,11 +909,15 @@ export function AgentInbox({
                     </button>
                     {ignoredOpen
                       ? groups.ignored.map((e) => (
-                          <EventCard
+                          <AgentInboxEventCard
                             key={e.id}
                             event={e}
                             label="나중에"
                             tone="border-mu-line bg-mu-sunken/50 opacity-80"
+                            trips={trips}
+                            suggestions={suggestions}
+                            rowError={rowErrors[e.id]}
+                            footer={eventCardFooter(e)}
                           />
                         ))
                       : null}
@@ -1121,30 +925,10 @@ export function AgentInbox({
                 ) : null}
 
                 {!error && groups.scoped.length === 0 ? (
-                  <div className="rounded-2xl bg-mu-sunken p-6 text-center text-sm leading-relaxed text-mu-fg-2">
-                    <p className="font-extrabold text-mu-fg">
-                      아직 받은 알림이 없어요
-                    </p>
-                    <p className="mt-2">
-                      {connected
-                        ? "연결은 됐어요. 알림이 오면 여기에 나타나요."
-                        : "카드 알림 자동 기록을 연결하면 결제 알림이 여기에 모여요."}
-                    </p>
-                    <Link
-                      href={connectHref}
-                      className="bg-mu-accent mt-4 inline-flex min-h-11 items-center justify-center rounded-2xl px-5 text-sm font-bold text-mu-on-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mu-accent"
-                    >
-                      {connected ? "연결 상태 확인" : "자동 기록 연결하기"}
-                    </Link>
-                    {!connected ? (
-                      <Link
-                        href="/onboarding/shortcut-guide"
-                        className="mt-3 block text-sm font-semibold text-mu-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mu-accent"
-                      >
-                        연동 가이드 보기
-                      </Link>
-                    ) : null}
-                  </div>
+                  <AgentInboxEmpty
+                    connectHref={connectHref}
+                    connected={connected}
+                  />
                 ) : null}
               </>
             )}
@@ -1155,80 +939,22 @@ export function AgentInbox({
 
   const sheets = (
     <>
-      <Sheet
-        open={Boolean(editEvent)}
+      <AgentInboxEditSheet
+        editEvent={editEvent}
+        editText={editText}
+        editMerchant={editMerchant}
+        editAmount={editAmount}
+        editCurrency={editCurrency}
+        editSpentOn={editSpentOn}
+        busyId={busyId}
         onClose={() => setEditEvent(null)}
-        title="알림 수정"
-      >
-        <div className="flex flex-col gap-3">
-          <label className="flex flex-col gap-1 text-xs">
-            <span className="font-bold text-mu-fg">알림 내용</span>
-            <textarea
-              value={editText}
-              onChange={(e) => setEditText(e.target.value)}
-              rows={4}
-              maxLength={2000}
-              className="min-h-[88px] w-full rounded-xl border border-mu-line px-3 py-2 text-sm"
-            />
-          </label>
-          {editEvent && canEditDraft(editEvent.status) ? (
-            <>
-              <label className="flex flex-col gap-1 text-xs">
-                <span className="font-bold text-mu-fg">상호</span>
-                <input
-                  value={editMerchant}
-                  onChange={(e) => setEditMerchant(e.target.value)}
-                  className="min-h-11 rounded-xl border border-mu-line px-3 text-sm"
-                />
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <label className="flex flex-col gap-1 text-xs">
-                  <span className="font-bold text-mu-fg">금액</span>
-                  <input
-                    value={editAmount}
-                    inputMode="decimal"
-                    onChange={(e) => setEditAmount(e.target.value)}
-                    className="min-h-11 rounded-xl border border-mu-line px-3 text-sm"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-xs">
-                  <span className="font-bold text-mu-fg">통화</span>
-                  <input
-                    value={editCurrency}
-                    maxLength={3}
-                    onChange={(e) =>
-                      setEditCurrency(e.target.value.toUpperCase())
-                    }
-                    className="min-h-11 rounded-xl border border-mu-line px-3 text-sm"
-                  />
-                </label>
-              </div>
-              <label className="flex flex-col gap-1 text-xs">
-                <span className="font-bold text-mu-fg">날짜 (선택)</span>
-                <input
-                  type="date"
-                  value={editSpentOn}
-                  onChange={(e) => setEditSpentOn(e.target.value)}
-                  className="min-h-11 rounded-xl border border-mu-line px-3 text-sm"
-                />
-              </label>
-            </>
-          ) : null}
-          <p className="text-[11px] text-mu-fg-3">
-            {editEvent && canEditDraft(editEvent.status)
-              ? "확인용 초안이에요. 저장 후 「가계부에 추가」로 반영해요. 이미 들어간 지출은 안 바뀌어요."
-              : "표시 문구만 바꿔요. 이미 가계부에 들어간 지출은 안 바뀌어요."}
-          </p>
-          <button
-            type="button"
-            disabled={busyId === editEvent?.id}
-            className="min-h-11 rounded-xl bg-mu-accent px-4 text-sm font-bold text-mu-on-accent disabled:opacity-50"
-            onClick={() => void saveEdit()}
-          >
-            저장
-          </button>
-        </div>
-      </Sheet>
+        onSave={() => void saveEdit()}
+        onEditText={setEditText}
+        onEditMerchant={setEditMerchant}
+        onEditAmount={setEditAmount}
+        onEditCurrency={setEditCurrency}
+        onEditSpentOn={setEditSpentOn}
+      />
 
       <QuickTripSheet
         open={sheetOpen}

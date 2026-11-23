@@ -22,28 +22,10 @@ import { planEstimateKrw } from "@/lib/ledger/plan-estimate";
 import { budgetPlanFromAllocation } from "@/lib/budget/adapters";
 import { variableLimitFromPlan } from "@/lib/ai/plan-agent";
 import { cn } from "@/lib/design/tokens";
-
-const EASTER_CELEB_PREFIX = "metu:easter-celeb:v2:";
-
-function easterCelebKey(destination: string) {
-  return `${EASTER_CELEB_PREFIX}${destination.trim().toLowerCase()}`;
-}
-
-function wasEasterCelebrated(destination: string): boolean {
-  try {
-    return sessionStorage.getItem(easterCelebKey(destination)) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function markEasterCelebrated(destination: string) {
-  try {
-    sessionStorage.setItem(easterCelebKey(destination), "1");
-  } catch {
-    // ignore
-  }
-}
+import {
+  markEasterCelebrated,
+  wasEasterCelebrated,
+} from "@/components/recommend/easter-celeb";
 
 interface RecommendResultProps {
   plan: TripRecommendation;
