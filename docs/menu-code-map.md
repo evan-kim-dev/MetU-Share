@@ -43,3 +43,15 @@
 - 목록: `CommunityListPage.tsx` + `Community*Section` / `useCommunityListState.ts`
 - 글쓰기: `WritePostSheet.tsx` + `WritePost*` 섹션
 - 상세: `PostDetailContent.tsx` + `PostDetail*` 섹션
+- DM: `DmChatPageContent.tsx` + `DmChat*` / `useDmChatThread.ts`
+
+## 가계부·여행 (`components/ledger/`, `components/trips/`)
+
+- `LedgerShell*` / `SplitChatRoom*` / `ExpenseConfirm*` / `PayStep*` / `SettleStep*` / `RecordStep*`
+- `TripDetail*` / `TripDetailSchedule*`
+
+## 로그인·온보딩·추천
+
+- `components/auth/EmailAuthForm` + `useEmailAuthForm` / `ConfirmEmailView` 등
+- `components/onboarding/connect/ConnectFlow` + `useConnectFlow`
+- `components/recommend/RecommendResult*` + `useRecommendResultPlan`
